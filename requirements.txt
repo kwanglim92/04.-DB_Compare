@@ -1,0 +1,58 @@
+# DB_Compare QC 검사 도구 - 필수 패키지
+# Version: 1.0.0
+# Python: 3.11+
+
+# ============================================
+# GUI Framework
+# ============================================
+customtkinter>=5.2.1
+# Modern, customizable tkinter widgets
+# Used for: Main window, dialogs, all UI components
+
+# ============================================
+# Data Processing & Reports
+# ============================================
+openpyxl>=3.1.2
+# Excel file generation and manipulation
+# Used for: QC inspection report generation (Summary, All Items, Failed Items sheets)
+
+# ============================================
+# Optional but Recommended
+# ============================================
+# Pillow>=10.0.0
+# Image processing library (dependency of customtkinter)
+# Usually auto-installed with customtkinter
+
+# ============================================
+# Built-in Python Libraries (No installation needed)
+# ============================================
+# The following are included with Python 3.11+:
+# - tkinter              : Base GUI framework
+# - pathlib              : File path handling
+# - logging              : Application logging
+# - json                 : JSON data processing
+# - xml.etree.ElementTree: XML parsing
+# - threading            : Multi-threading support
+# - datetime             : Date/time operations
+# - typing               : Type hints
+# - collections          : Data structures
+
+# ============================================
+# Installation
+# ============================================
+# To install all requirements:
+#   pip install -r requirements.txt
+#
+# To upgrade all packages:
+#   pip install --upgrade -r requirements.txt
+#
+# To verify installation:
+#   pip list
+
+# ============================================
+# Known Compatible Versions (Tested)
+# ============================================
+# Python: 3.11.0+
+# customtkinter: 5.2.1
+# openpyxl: 3.1.2
+# Pillow: 10.1.0 (auto-installed)
