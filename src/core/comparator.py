@@ -276,6 +276,7 @@ class QCComparator:
                 'skipped': 0,
                 'errors': 0,
                 'no_spec': 0,
+                'missing_in_db': 0,
                 'pass_rate': 0.0
             },
             'profile_name': profile_name,
@@ -345,6 +346,23 @@ class QCComparator:
                         'message': comparison_result.get('message', '')
                     })
         
+        # Check for profile items missing in DB
+        missing_items = self._find_missing_in_db(db_data, specs)
+        for missing in missing_items:
+            report['summary']['failed'] += 1
+            report['summary']['validated'] += 1
+            report['summary']['missing_in_db'] += 1
+            report['results'].append({
+                'module': missing['module'],
+                'part_type': missing['part_type'],
+                'part_name': missing['part_name'],
+                'item_name': missing['item_name'],
+                'actual_value': 'N/A',
+                'spec': missing['spec'],
+                'status': 'FAIL',
+                'message': '⚠️ Item not found in DB'
+            })
+        
         # Calculate pass rate (exclude CHECK from denominator)
         validated_items = report['summary']['validated']
         if validated_items > 0:
@@ -363,6 +381,7 @@ class QCComparator:
         self.logger.info(f"  Skipped: {report['summary']['skipped']}")
         self.logger.info(f"  Errors: {report['summary']['errors']}")
         self.logger.info(f"  No Spec: {report['summary']['no_spec']}")
+        self.logger.info(f"  Missing in DB: {report['summary']['missing_in_db']}")
         self.logger.info(f"  Pass Rate: {report['summary']['pass_rate']}%")
         self.logger.info("=" * 60)
         
@@ -394,3 +413,52 @@ class QCComparator:
             
         except KeyError:
             return None
+    
+    def _find_missing_in_db(self, db_data: Dict, specs: Dict) -> List[Dict]:
+        """
+        Find spec items that don't exist in DB
+        
+        Args:
+            db_data: DB data from extractor
+            specs: Loaded specs with inheritance
+            
+        Returns:
+            List of missing items
+        """
+        missing = []
+        
+        # Build DB item set for fast lookup
+        db_items = set()
+        for module in db_data.get('modules', []):
+            module_name = module['name']
+            for part in module.get('parts', []):
+                part_type = part['type']
+                part_name = part['name']
+                for item in part.get('items', []):
+                    item_name = item.get('name', '')
+                    key = (module_name, part_type, part_name, item_name)
+                    db_items.add(key)
+        
+        # Check each spec item
+        for module, module_data in specs.items():
+            for part_type, type_data in module_data.items():
+                for part_name, items in type_data.items():
+                    for spec in items:
+                        if not spec.get('enabled', True):
+                            continue
+                        item_name = spec.get('item_name', '')
+                        key = (module, part_type, part_name, item_name)
+                        
+                        if key not in db_items:
+                            missing.append({
+                                'module': module,
+                                'part_type': part_type,
+                                'part_name': part_name,
+                                'item_name': item_name,
+                                'spec': spec
+                            })
+        
+        if missing:
+            self.logger.warning(f"Found {len(missing)} profile items missing in DB")
+        
+        return missing

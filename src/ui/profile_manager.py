@@ -1027,13 +1027,12 @@ class ProfileManagerWindow(ctk.CTkToplevel):
             self.display_profile_specs(self.current_profile)
             
             messagebox.showinfo(
-                "Updated",
-                f"Spec for '{item_name}' has been updated.\n\n"
-                "Don't forget to Export this profile to save changes!"
+                "Saved",
+                f"Spec for '{item_name}' has been updated and saved."
             )
     
     def update_spec_in_profile(self, module, part_type, part, item_name, new_spec):
-        """Update spec in current profile"""
+        """Update spec in current profile and save to file"""
         try:
             if self.current_profile not in self.spec_manager.equipment_profiles:
                 return
@@ -1054,12 +1053,26 @@ class ProfileManagerWindow(ctk.CTkToplevel):
             
             items = checks[module][part_type][part]
             
+            # Find and update existing item, or add new
+            found = False
             for i, spec in enumerate(items):
                 if spec.get('item_name') == item_name:
                     items[i] = new_spec
+                    found = True
                     break
             
+            if not found:
+                # Add new item (override inherited item)
+                items.append(new_spec)
+            
             logger.info(f"Updated spec: {module}/{part_type}/{part}/{item_name}")
+            
+            # Save to file
+            spec_file = Path(__file__).parent.parent.parent / "config" / "qc_specs.json"
+            if self.spec_manager.save_spec_file(str(spec_file)):
+                logger.info("Profile saved successfully")
+            else:
+                logger.error("Failed to save profile")
             
         except Exception as e:
             logger.error(f"Update spec error: {e}", exc_info=True)
