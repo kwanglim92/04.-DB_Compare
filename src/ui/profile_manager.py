@@ -5,13 +5,15 @@ Dual-view mode: Flat Table ↔️ Grouped Tree
 """
 
 import customtkinter as ctk
-from tkinter import ttk, messagebox, filedialog
+from tkinter import ttk, messagebox, filedialog, simpledialog
 from pathlib import Path
 from typing import Dict, Optional
 import logging
 
 from src.core.db_extractor import DBExtractor
 from src.ui.spec_dialog import SpecConfigDialog
+from src.utils.format_helpers import format_spec, center_window_on_parent
+from src.constants import COLORS
 
 logger = logging.getLogger(__name__)
 
@@ -263,6 +265,9 @@ class ProfileManagerWindow(ctk.CTkToplevel):
         """Load all profiles into listbox"""
         self.profile_listbox.delete(0, "end")
         
+        # Add Common Base as special entry
+        self.profile_listbox.insert("end", "★ Common Base")
+        
         profiles = self.spec_manager.get_all_profile_names()
         for profile in profiles:
             self.profile_listbox.insert("end", profile)
@@ -274,9 +279,14 @@ class ProfileManagerWindow(ctk.CTkToplevel):
             return
             
         profile_name = self.profile_listbox.get(selection[0])
-        self.current_profile = profile_name
         self.search_entry.delete(0, 'end')  # Clear search
-        self.display_profile_specs(profile_name)
+        
+        if profile_name == "★ Common Base":
+            self.current_profile = "__COMMON_BASE__"
+            self.display_common_base_specs()
+        else:
+            self.current_profile = profile_name
+            self.display_profile_specs(profile_name)
     
     def toggle_view_mode(self):
         """Toggle between table and tree view"""
@@ -290,7 +300,9 @@ class ProfileManagerWindow(ctk.CTkToplevel):
             self.reconfigure_treeview_for_table()
         
         # Refresh display
-        if self.current_profile:
+        if self.current_profile == '__COMMON_BASE__':
+            self.display_common_base_specs()
+        elif self.current_profile:
             self.display_profile_specs(self.current_profile)
     
     def reconfigure_treeview_for_table(self):
@@ -339,6 +351,46 @@ class ProfileManagerWindow(ctk.CTkToplevel):
         
         # Show tree column
         self.spec_tree.configure(show='tree headings')
+    
+    def display_common_base_specs(self):
+        """Display Common_Base specs"""
+        # Clear tree
+        for item in self.spec_tree.get_children():
+            self.spec_tree.delete(item)
+        
+        specs = self.spec_manager.get_common_base_specs()
+        
+        if not specs:
+            self.spec_title_label.configure(text="★ Common Base (0 items)")
+            return
+        
+        # Build all_specs_data for reuse with table/tree views
+        self.all_specs_data = []
+        for module, module_data in specs.items():
+            for part_type, type_data in module_data.items():
+                for part_name, items in type_data.items():
+                    for spec in items:
+                        if not spec.get('enabled', True):
+                            continue
+                        self.all_specs_data.append({
+                            'module': module,
+                            'part_type': part_type,
+                            'part': part_name,
+                            'item': spec.get('item_name', ''),
+                            'type': spec.get('validation_type', '').upper(),
+                            'spec': self.format_spec(spec),
+                            'unit': spec.get('unit', ''),
+                            'raw_spec': spec
+                        })
+        
+        total_items = len(self.all_specs_data)
+        self.spec_title_label.configure(text=f"★ Common Base ({total_items} items)")
+        
+        # Display based on view mode
+        if self.view_mode == 'table':
+            self.display_as_table(specs)
+        else:
+            self.display_as_tree(specs)
     
     def display_profile_specs(self, profile_name: str):
         """Display specs for selected profile"""
@@ -586,30 +638,51 @@ class ProfileManagerWindow(ctk.CTkToplevel):
         self.open_profile_editor(profile_name, db_path, is_new=True)
         
     def edit_profile(self):
-        """Edit selected profile"""
+        """Edit selected profile — open directly without DB selection"""
         if not self.current_profile:
             messagebox.showwarning("Warning", "Please select a profile to edit")
             return
-            
-        # Ask for DB path
-        db_path = filedialog.askdirectory(title="Select DB for Editing")
-        if not db_path:
-            return
-            
-        # Open profile editor
-        self.open_profile_editor(self.current_profile, db_path, is_new=False)
         
-    def open_profile_editor(self, profile_name: str, db_path: str, is_new: bool):
+        if self.current_profile == '__COMMON_BASE__':
+            # Common Base requires additional password
+            password = simpledialog.askstring(
+                "Security",
+                "Common Base 편집은 관리자 비밀번호가 필요합니다.\nEnter administrator password:",
+                show='*',
+                parent=self
+            )
+            if password is None:
+                return
+            if password != "pqclevi":
+                messagebox.showerror("Access Denied", "Incorrect password.")
+                return
+            
+            # Open profile editor for Common Base
+            self.open_profile_editor("Common_Base", db_path=None, is_new=False, is_common_base=True)
+            return
+        
+        # Open profile editor directly (no DB required for editing existing items)
+        self.open_profile_editor(self.current_profile, db_path=None, is_new=False)
+        
+    def open_profile_editor(self, profile_name: str, db_path: str, is_new: bool, is_common_base: bool = False):
         """Open profile editor window"""
         from src.ui.profile_editor import ProfileEditorWindow
         
-        editor = ProfileEditorWindow(self, profile_name, db_path, self.spec_manager, is_new)
+        editor = ProfileEditorWindow(self, profile_name, db_path, self.spec_manager, is_new, is_common_base=is_common_base)
         self.wait_window(editor)
         
         # Reload if modified
         if editor.profile_saved:
             self.profiles_modified = True
             self.load_profiles()
+            
+            if is_common_base:
+                # Re-select Common Base
+                self.profile_listbox.selection_clear(0, "end")
+                self.profile_listbox.selection_set(0)
+                self.current_profile = "__COMMON_BASE__"
+                self.display_common_base_specs()
+                return
             
             # Select the new/edited profile
             for i in range(self.profile_listbox.size()):
@@ -792,6 +865,13 @@ class ProfileManagerWindow(ctk.CTkToplevel):
             if not confirm:
                 return
                 
+            # Handle Common_Base delete
+            if self.current_profile == '__COMMON_BASE__':
+                self.spec_manager.remove_item_from_common_base(module, part_type, part, item_name)
+                messagebox.showinfo("Success", "Item deleted from Common Base")
+                self.display_common_base_specs()
+                return
+            
             # Remove from profile
             profile_data = self.spec_manager.equipment_profiles[self.current_profile]
             
@@ -856,9 +936,8 @@ class ProfileManagerWindow(ctk.CTkToplevel):
                 
                 deleted = True
 
-            # Save changes
-            spec_file = Path(__file__).parent.parent.parent / "config" / "qc_specs.json"
-            if self.spec_manager.save_spec_file(str(spec_file)):
+            # Save changes to individual profile file
+            if self.spec_manager.save_equipment_profile(self.current_profile):
                 messagebox.showinfo("Success", "Item deleted successfully")
                 self.display_profile_specs(self.current_profile)
             else:
@@ -1002,7 +1081,10 @@ class ProfileManagerWindow(ctk.CTkToplevel):
     def find_spec_data(self, module, part_type, part, item_name):
         """Find spec data for given item"""
         try:
-            specs = self.spec_manager.load_profile_with_inheritance(self.current_profile)
+            if self.current_profile == '__COMMON_BASE__':
+                specs = self.spec_manager.get_common_base_specs()
+            else:
+                specs = self.spec_manager.load_profile_with_inheritance(self.current_profile)
             
             if module in specs:
                 if part_type in specs[module]:
@@ -1023,8 +1105,15 @@ class ProfileManagerWindow(ctk.CTkToplevel):
         self.wait_window(dialog)
         
         if dialog.result:
-            self.update_spec_in_profile(module, part_type, part, item_name, dialog.result)
-            self.display_profile_specs(self.current_profile)
+            if self.current_profile == '__COMMON_BASE__':
+                # Save to Common_Base
+                self.spec_manager.update_common_base_item(
+                    module, part_type, part, item_name, dialog.result
+                )
+                self.display_common_base_specs()
+            else:
+                self.update_spec_in_profile(module, part_type, part, item_name, dialog.result)
+                self.display_profile_specs(self.current_profile)
             
             messagebox.showinfo(
                 "Saved",
@@ -1067,9 +1156,8 @@ class ProfileManagerWindow(ctk.CTkToplevel):
             
             logger.info(f"Updated spec: {module}/{part_type}/{part}/{item_name}")
             
-            # Save to file
-            spec_file = Path(__file__).parent.parent.parent / "config" / "qc_specs.json"
-            if self.spec_manager.save_spec_file(str(spec_file)):
+            # Save to individual profile file
+            if self.spec_manager.save_equipment_profile(self.current_profile):
                 logger.info("Profile saved successfully")
             else:
                 logger.error("Failed to save profile")

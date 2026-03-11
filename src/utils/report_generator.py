@@ -11,6 +11,9 @@ from datetime import datetime
 from typing import Dict
 import logging
 
+from src.constants import EXCEL_COLORS
+from src.utils.format_helpers import format_spec
+
 logger = logging.getLogger(__name__)
 
 
@@ -22,15 +25,8 @@ class ExcelReportGenerator:
     def __init__(self):
         self.logger = logger
         
-        # Define colors (aRGB format: Alpha + RGB)
-        self.colors = {
-            'header': 'FF4472C4',  # Blue header
-            'pass': 'FF90EE90',    # Light green
-            'fail': 'FFFFB6C1',    # Light red
-            'check': 'FFE3F2FD',   # Light blue
-            'no_spec': 'FFD3D3D3', # Light gray
-            'error': 'FFFFA500'    # Orange
-        }
+        # Use EXCEL_COLORS from constants
+        self.colors = EXCEL_COLORS
     
     def generate_report(self, qc_report: Dict, output_path: str) -> bool:
         """
@@ -242,20 +238,5 @@ class ExcelReportGenerator:
         ws.freeze_panes = 'A2'
     
     def format_spec(self, spec: Dict) -> str:
-        """Format spec for display"""
-        if not spec:
-            return '-'
-        
-        validation_type = spec.get('validation_type', 'range')
-        
-        if validation_type == 'range':
-            min_spec = spec.get('min_spec', '?')
-            max_spec = spec.get('max_spec', '?')
-            unit = spec.get('unit', '')
-            return f"[{min_spec}, {max_spec}] {unit}".strip()
-        elif validation_type == 'exact':
-            expected = spec.get('expected_value', '?')
-            unit = spec.get('unit', '')
-            return f"= {expected} {unit}".strip()
-        else:
-            return '?'
+        """Forward to common format helper"""
+        return format_spec(spec)

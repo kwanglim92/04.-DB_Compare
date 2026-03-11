@@ -1,0 +1,510 @@
+{
+  "_version": "2.0",
+  "_description": "Profile for C:/Park Systems/XEService/DB",
+  "_migrated_from": "qc_specs.json",
+  "_migrated_at": "2026-02-02T20:24:26.635738",
+  "inherits_from": "Common_Base",
+  "overrides": {},
+  "additional_checks": {
+    "Dsp": {
+      "XDetector": {
+        "100um": [
+          {
+            "item_name": "MicrometerPerAdc",
+            "validation_type": "range",
+            "unit": "",
+            "min_spec": 200.0,
+            "max_spec": 300.0,
+            "enabled": true
+          },
+          {
+            "item_name": "AuxMicrometerPerAdc",
+            "validation_type": "range",
+            "unit": "",
+            "min_spec": 200.0,
+            "max_spec": 300.0,
+            "enabled": true
+          }
+        ]
+      },
+      "Cantilever": {
+        "Biosphere-B100_NCH": [
+          {
+            "item_name": "MinimalIntensity",
+            "validation_type": "exact",
+            "expected_value": "0.5",
+            "enabled": true
+          },
+          {
+            "item_name": "MicrometerPerErrorSignalAdc",
+            "validation_type": "exact",
+            "unit": "",
+            "expected_value": "0.2",
+            "enabled": true
+          }
+        ]
+      },
+      "YDetector": {
+        "100um": [
+          {
+            "item_name": "AuxMicrometerPerAdc",
+            "validation_type": "range",
+            "unit": "",
+            "min_spec": 200.0,
+            "max_spec": 300.0,
+            "enabled": true
+          },
+          {
+            "item_name": "MicrometerPerAdc",
+            "validation_type": "range",
+            "unit": "",
+            "min_spec": 200.0,
+            "max_spec": 300.0,
+            "enabled": true
+          }
+        ]
+      },
+      "YScanner": {
+        "100um": [
+          {
+            "item_name": "ServoScanRangeMicrometer",
+            "validation_type": "exact",
+            "expected_value": "101.01",
+            "enabled": true
+          },
+          {
+            "item_name": "ResonanceFrequencyHz",
+            "validation_type": "exact",
+            "expected_value": "200",
+            "enabled": true
+          },
+          {
+            "item_name": "MicrometerPerDacHigh",
+            "validation_type": "range",
+            "unit": "",
+            "min_spec": 150.0,
+            "max_spec": 220.0,
+            "enabled": true
+          },
+          {
+            "item_name": "ServoCutoffFrequencyHz",
+            "validation_type": "exact",
+            "expected_value": "80",
+            "enabled": true
+          }
+        ]
+      },
+      "FocusStage": {
+        "General": [
+          {
+            "item_name": "MicronUpperLimit",
+            "validation_type": "exact",
+            "expected_value": "9000",
+            "enabled": true
+          },
+          {
+            "item_name": "MicronLowerLimit",
+            "validation_type": "check",
+            "unit": "",
+            "enabled": true
+          }
+        ]
+      },
+      "ZScanner": {
+        "General": [
+          {
+            "item_name": "MicrometerPerDacHigh",
+            "validation_type": "range",
+            "unit": "",
+            "min_spec": 9.0,
+            "max_spec": 14.0,
+            "enabled": true
+          }
+        ]
+      },
+      "ZStage": {
+        "General": [
+          {
+            "item_name": "MicrometerPerEncoder",
+            "validation_type": "exact",
+            "expected_value": "0.05",
+            "enabled": true
+          },
+          {
+            "item_name": "MicronUpperLimit",
+            "validation_type": "exact",
+            "expected_value": "29000",
+            "enabled": true
+          },
+          {
+            "item_name": "HeadCrashThreshold",
+            "validation_type": "exact",
+            "expected_value": "0.15",
+            "enabled": true
+          },
+          {
+            "item_name": "UseEncoder",
+            "validation_type": "exact",
+            "expected_value": "1",
+            "enabled": true
+          },
+          {
+            "item_name": "MicronLowerLimit",
+            "validation_type": "check",
+            "unit": "",
+            "enabled": true
+          }
+        ]
+      },
+      "Info": {
+        "General": [
+          {
+            "item_name": "bDisableNCMDriveReduction",
+            "validation_type": "exact",
+            "expected_value": "1",
+            "enabled": true
+          },
+          {
+            "item_name": "NCMDriveRangeLiquidMode",
+            "validation_type": "exact",
+            "expected_value": "1",
+            "enabled": true
+          }
+        ]
+      },
+      "XScanner": {
+        "100um": [
+          {
+            "item_name": "MicrometerPerDacHigh",
+            "validation_type": "range",
+            "unit": "",
+            "min_spec": 150.0,
+            "max_spec": 220.0,
+            "enabled": true
+          },
+          {
+            "item_name": "ServoScanRangeMicrometer",
+            "validation_type": "exact",
+            "expected_value": "101.01",
+            "enabled": true
+          },
+          {
+            "item_name": "ResonanceFrequencyHz",
+            "validation_type": "exact",
+            "expected_value": "200",
+            "enabled": true
+          }
+        ]
+      },
+      "ZDetector": {
+        "General": [
+          {
+            "item_name": "MicrometerPerAdcHigh",
+            "validation_type": "range",
+            "unit": "",
+            "min_spec": 23.0,
+            "max_spec": 35.0,
+            "enabled": true
+          }
+        ]
+      }
+    },
+    "Profiler": {
+      "Info": {
+        "Galil": [
+          {
+            "item_name": "PreventionTorqueThreshold",
+            "validation_type": "exact",
+            "expected_value": "3",
+            "enabled": true
+          },
+          {
+            "item_name": "FastScanPixelSize",
+            "validation_type": "exact",
+            "expected_value": "512",
+            "enabled": true
+          },
+          {
+            "item_name": "DGainWhileMoving",
+            "validation_type": "exact",
+            "expected_value": "10",
+            "enabled": true
+          },
+          {
+            "item_name": "OverProfileBeforeMM",
+            "validation_type": "exact",
+            "expected_value": "0.2",
+            "enabled": true
+          },
+          {
+            "item_name": "ExtTriggerType",
+            "validation_type": "exact",
+            "expected_value": "0",
+            "enabled": true
+          },
+          {
+            "item_name": "ExtTriggerThresholdVolt",
+            "validation_type": "exact",
+            "expected_value": "1.5",
+            "enabled": true
+          },
+          {
+            "item_name": "PosMin",
+            "validation_type": "exact",
+            "expected_value": "-5.5",
+            "enabled": true
+          },
+          {
+            "item_name": "HomeMode",
+            "validation_type": "exact",
+            "expected_value": "4",
+            "enabled": true
+          },
+          {
+            "item_name": "RecoveryCountThreshold",
+            "validation_type": "exact",
+            "expected_value": "20",
+            "enabled": true
+          },
+          {
+            "item_name": "ProfileCountThreshold",
+            "validation_type": "exact",
+            "expected_value": "20",
+            "enabled": true
+          },
+          {
+            "item_name": "OverProfileAfterMM",
+            "validation_type": "exact",
+            "expected_value": "0.2",
+            "enabled": true
+          },
+          {
+            "item_name": "UsePositionSync",
+            "validation_type": "exact",
+            "expected_value": "1",
+            "enabled": true
+          },
+          {
+            "item_name": "ExtTriggerAUXSource",
+            "validation_type": "exact",
+            "expected_value": "4",
+            "enabled": true
+          },
+          {
+            "item_name": "MaxLength",
+            "validation_type": "range",
+            "unit": "",
+            "min_spec": 10.0,
+            "max_spec": 20.0,
+            "enabled": true
+          },
+          {
+            "item_name": "PosMax",
+            "validation_type": "exact",
+            "expected_value": "5.5",
+            "enabled": true
+          },
+          {
+            "item_name": "Origin",
+            "validation_type": "exact",
+            "expected_value": "0",
+            "enabled": true
+          },
+          {
+            "item_name": "Mileage",
+            "validation_type": "exact",
+            "expected_value": "0",
+            "enabled": true
+          },
+          {
+            "item_name": "PGainWhileMoving",
+            "validation_type": "exact",
+            "expected_value": "10",
+            "enabled": true
+          },
+          {
+            "item_name": "UseRecovery",
+            "validation_type": "exact",
+            "expected_value": "1",
+            "enabled": true
+          },
+          {
+            "item_name": "IGain",
+            "validation_type": "exact",
+            "expected_value": "0.03",
+            "enabled": true
+          },
+          {
+            "item_name": "FullRecoveryProfileLength",
+            "validation_type": "exact",
+            "expected_value": "10",
+            "enabled": true
+          },
+          {
+            "item_name": "PreventionFailureRate",
+            "validation_type": "exact",
+            "expected_value": "10",
+            "enabled": true
+          },
+          {
+            "item_name": "PGain",
+            "validation_type": "exact",
+            "expected_value": "10",
+            "enabled": true
+          },
+          {
+            "item_name": "IGainWhileMoving",
+            "validation_type": "exact",
+            "expected_value": "0.03",
+            "enabled": true
+          },
+          {
+            "item_name": "PreventionFailAction",
+            "validation_type": "exact",
+            "expected_value": "1",
+            "enabled": true
+          },
+          {
+            "item_name": "DGain",
+            "validation_type": "exact",
+            "expected_value": "10",
+            "enabled": true
+          }
+        ]
+      }
+    },
+    "FacilityController": {
+      "Emergency": {
+        "General": [
+          {
+            "item_name": "bUseResetAlarm",
+            "validation_type": "exact",
+            "expected_value": "1",
+            "enabled": true
+          },
+          {
+            "item_name": "bUseWarningMessage",
+            "validation_type": "exact",
+            "expected_value": "1",
+            "enabled": true
+          },
+          {
+            "item_name": "bUseSystemReset",
+            "validation_type": "exact",
+            "expected_value": "1",
+            "enabled": true
+          },
+          {
+            "item_name": "bUse",
+            "validation_type": "exact",
+            "expected_value": "1",
+            "enabled": true
+          }
+        ]
+      },
+      "SignTower": {
+        "General": [
+          {
+            "item_name": "bReportEmergency",
+            "validation_type": "exact",
+            "expected_value": "1",
+            "enabled": true
+          },
+          {
+            "item_name": "bReportDoorOpen",
+            "validation_type": "exact",
+            "expected_value": "1",
+            "enabled": true
+          },
+          {
+            "item_name": "bUseBuzzer",
+            "validation_type": "exact",
+            "expected_value": "1",
+            "enabled": true
+          }
+        ]
+      },
+      "SerialPort": {
+        "General": [
+          {
+            "item_name": "BaudRate",
+            "validation_type": "exact",
+            "expected_value": "9600",
+            "enabled": true
+          }
+        ]
+      }
+    },
+    "XYStage": {
+      "Info": {
+        "General": [
+          {
+            "item_name": "bUseInterlock",
+            "validation_type": "exact",
+            "expected_value": "1",
+            "enabled": true
+          }
+        ]
+      },
+      "SerialPort": {
+        "General": [
+          {
+            "item_name": "BaudRate",
+            "validation_type": "exact",
+            "expected_value": "38400",
+            "enabled": true
+          }
+        ]
+      }
+    },
+    "Vision": {
+      "Camera": {
+        "AVT": [
+          {
+            "item_name": "LightStrengthGain",
+            "validation_type": "exact",
+            "expected_value": "1",
+            "enabled": true
+          },
+          {
+            "item_name": "FullPixel",
+            "validation_type": "exact",
+            "expected_value": "2440",
+            "enabled": true
+          },
+          {
+            "item_name": "FullPixelHeight",
+            "validation_type": "exact",
+            "expected_value": "1828",
+            "enabled": true
+          },
+          {
+            "item_name": "Maker",
+            "validation_type": "exact",
+            "expected_value": "AVT_GIGECAM",
+            "enabled": true
+          }
+        ]
+      }
+    },
+    "System": {
+      "Info": {
+        "General": [
+          {
+            "item_name": "TipCharacterizerSupport",
+            "validation_type": "exact",
+            "expected_value": "1",
+            "enabled": true
+          }
+        ]
+      }
+    }
+  },
+  "excluded_items": [
+    "Dsp.XScanner.5um.ServoCutoffFrequencyHz",
+    "Dsp.XScanner.100um.ScanningRangeDefaultMedium",
+    "Dsp.XScanner.100um.ScanningRangeDefaultLow",
+    "Dsp.XScanner.100um.ServoCutoffFrequencyHz"
+  ],
+  "_cleaned_at": "2026-02-02T22:23:19.177214"
+}

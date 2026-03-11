@@ -6,6 +6,8 @@ Dialog for setting QC specifications for an item
 import customtkinter as ctk
 from typing import Dict, Optional
 
+from src.utils.format_helpers import center_window_on_parent
+
 
 class SpecConfigDialog(ctk.CTkToplevel):
     """
@@ -28,15 +30,7 @@ class SpecConfigDialog(ctk.CTkToplevel):
         self.grab_set()
         
         self.create_widgets(current_spec)
-        
-        # Center on parent
-        self.center_on_parent(parent)
-        
-    def center_on_parent(self, parent):
-        """Center window on parent"""
-        x = parent.winfo_x() + (parent.winfo_width() // 2) - (400 // 2)
-        y = parent.winfo_y() + (parent.winfo_height() // 2) - (600 // 2)
-        self.geometry(f"+{x}+{y}")
+        center_window_on_parent(self, parent, 400, 600)
         
     def create_widgets(self, current_spec):
         """Create dialog widgets"""

@@ -1,8 +1,4 @@
 {
-  "db_root_path": "C:\\Park Systems\\XEService\\DB",
-  "default_equipment_profile": "",
-  "ui_theme": "dark",
-  "auto_save_reports": true,
-  "report_output_dir": "./reports",
-  "window_geometry": "1600x800"
+  "db_root_path": "C:/Users/Spare/Desktop/DB",
+  "default_equipment_profile": "NX-Wafer"
 }

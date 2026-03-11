@@ -41,10 +41,20 @@ class MainWindow:
         # Load settings
         self.load_settings()
         
-        # Load spec file
-        spec_file = Path(__file__).parent.parent.parent / "config" / "qc_specs.json"
-        if spec_file.exists():
-            self.spec_manager.load_spec_file(str(spec_file))
+        # Load spec config — try new multi-file structure first, fallback to legacy
+        config_dir = Path(__file__).parent.parent.parent / "config"
+        common_base = config_dir / "common_base.json"
+        profiles_dir = config_dir / "profiles"
+        
+        if common_base.exists() and profiles_dir.exists():
+            logger.info("Loading config from multi-file structure")
+            self.spec_manager.load_multi_file_config(config_dir)
+        else:
+            # Legacy single-file fallback
+            spec_file = config_dir / "qc_specs.json"
+            if spec_file.exists():
+                logger.info("Loading config from legacy qc_specs.json")
+                self.spec_manager.load_spec_file(str(spec_file))
         
         # Create UI
         self.create_menu()
@@ -422,8 +432,8 @@ class MainWindow:
         if selected_profile:
             self.load_profile_to_viewer(selected_profile)
     
-    def run_qc_inspection(self):
-        """Run QC inspection"""
+    def run_qc_inspection(self, excluded_modules=None):
+        """Run QC inspection with optional module exclusions"""
         if not self.db_data or not self.current_profile:
             return
         
@@ -437,12 +447,24 @@ class MainWindow:
                 messagebox.showerror("Error", "Failed to load spec profile")
                 return
             
-            # Generate report
+            # Generate report (with exclusions if provided)
             self.qc_report = self.comparator.generate_report(
                 self.db_data,
                 specs,
-                self.current_profile
+                self.current_profile,
+                excluded_modules=list(excluded_modules) if excluded_modules else None
             )
+            
+            # Check for N/A items — show review dialog on first run (no exclusions yet)
+            if excluded_modules is None:
+                missing_items = [
+                    r for r in self.qc_report['results']
+                    if r['status'] == 'FAIL' and r['actual_value'] == 'N/A'
+                ]
+                
+                if missing_items:
+                    self._show_na_review_dialog(missing_items)
+                    return  # Wait for dialog result
             
             # Display results
             self.display_results()
@@ -455,12 +477,70 @@ class MainWindow:
             
             # Update status with pass rate
             pass_rate = self.qc_report['summary']['pass_rate']
-            self.update_status(f"QC Complete - Pass Rate: {pass_rate}%")
+            excluded_count = self.qc_report['summary'].get('excluded', 0)
+            status_text = f"QC Complete - Pass Rate: {pass_rate}%"
+            if excluded_count > 0:
+                status_text += f" ({excluded_count} excluded)"
+            self.update_status(status_text)
             
         except Exception as e:
             messagebox.showerror("Error", f"Failed to run QC:\n{str(e)}")
             self.update_status("Error running QC")
             logger.error(f"Error running QC: {e}", exc_info=True)
+    
+    def _show_na_review_dialog(self, missing_items):
+        """Show N/A review dialog and handle result"""
+        from src.ui.na_review_dialog import NaReviewDialog
+        
+        dialog = NaReviewDialog(
+            self.root,
+            missing_items,
+            self.current_profile,
+            self.spec_manager
+        )
+        
+        # Wait for dialog to close
+        self.root.wait_window(dialog)
+        
+        if dialog.confirmed:
+            excluded = dialog.excluded_patterns
+            
+            # Save to profile if requested
+            if dialog.save_to_profile and excluded:
+                self._save_exclusions_to_profile(excluded)
+            
+            # Re-run QC with exclusions
+            self.run_qc_inspection(excluded_modules=excluded)
+        else:
+            # User cancelled — show results without exclusion (all N/A as FAIL)
+            self.display_results()
+            self.update_profile_viewer_with_results(self.qc_report)
+            self.display_db_tree()
+            self.export_btn.configure(state="normal")
+            
+            pass_rate = self.qc_report['summary']['pass_rate']
+            self.update_status(f"QC Complete - Pass Rate: {pass_rate}%")
+    
+    def _save_exclusions_to_profile(self, excluded_patterns):
+        """Save exclusion patterns to profile JSON"""
+        try:
+            profile_name = self.current_profile
+            if profile_name not in self.spec_manager.equipment_profiles:
+                return
+            
+            profile = self.spec_manager.equipment_profiles[profile_name]
+            existing = set(profile.get('excluded_items', []))
+            
+            # Add new patterns
+            existing.update(excluded_patterns)
+            profile['excluded_items'] = sorted(list(existing))
+            
+            # Save to file
+            self.spec_manager.save_equipment_profile(profile_name)
+            logger.info(f"Saved {len(excluded_patterns)} exclusion patterns to {profile_name}")
+            
+        except Exception as e:
+            logger.error(f"Error saving exclusions: {e}", exc_info=True)
     
     def display_results(self):
         """Display QC results - COMPACT VERSION"""
@@ -522,6 +602,10 @@ class MainWindow:
                         font=("Segoe UI", 14), text_color="#1f6aa5").pack(anchor="e")
         
         # Others
+        excluded_count = summary.get('excluded', 0)
+        if excluded_count > 0:
+            ctk.CTkLabel(counts_frame, text=f"EXCLUDED: {excluded_count}", 
+                        font=("Segoe UI", 14), text_color="#888888").pack(anchor="e")
         ctk.CTkLabel(counts_frame, text=f"No Spec: {summary['no_spec']}", 
                     font=("Segoe UI", 13), text_color="gray").pack(anchor="e")
         ctk.CTkLabel(counts_frame, text=f"Errors: {summary['errors']}", 

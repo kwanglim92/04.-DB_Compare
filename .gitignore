@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+*.egg
+dist/
+build/
+*.spec
+
+# Virtual Environment
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Agent / AI
+.agent
+.agents/
+.gemini/
+
+# Config - runtime files (not tracked)
+config/backup/
+config/qc_specs_legacy.json
+config/qc_specs.json
+
+# Installer output
+installer/*.exe
+installer/Output/
+
+# Logs
+*.log

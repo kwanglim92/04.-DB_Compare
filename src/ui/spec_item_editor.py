@@ -7,6 +7,8 @@ import customtkinter as ctk
 from tkinter import messagebox
 import logging
 
+from src.utils.format_helpers import center_window_on_parent
+
 logger = logging.getLogger(__name__)
 
 
@@ -33,16 +35,7 @@ class SpecItemEditorDialog(ctk.CTkToplevel):
         
         # Create UI
         self.create_widgets()
-        
-        # Center on parent
-        self.center_on_parent(parent)
-        
-    def center_on_parent(self, parent):
-        """Center dialog on parent window"""
-        parent.update_idletasks()
-        x = parent.winfo_x() + (parent.winfo_width() // 2) - (450 // 2)
-        y = parent.winfo_y() + (parent.winfo_height() // 2) - (500 // 2)
-        self.geometry(f"+{x}+{y}")
+        center_window_on_parent(self, parent, 450, 500)
         
     def create_widgets(self):
         """Create dialog widgets"""

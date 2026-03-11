@@ -18,6 +18,18 @@ class QCComparator:
     def __init__(self):
         self.logger = logger
     
+    def _match_exclusion_pattern(self, item_path: str, pattern: str) -> bool:
+        """Check if item_path matches exclusion pattern (supports * wildcard)"""
+        item_parts = item_path.split('.')
+        pattern_parts = pattern.split('.')
+        
+        for item_seg, pat_seg in zip(item_parts, pattern_parts):
+            if pat_seg == '*':
+                return True
+            if item_seg != pat_seg:
+                return False
+        return len(item_parts) == len(pattern_parts)
+    
     def compare_item(self, item_data: Dict, spec: Dict) -> Dict:
         """
         Compare a single item against its specification
@@ -223,7 +235,8 @@ class QCComparator:
         
         return result
     
-    def generate_report(self, db_data: Dict, specs: Dict, profile_name: str) -> Dict:
+    def generate_report(self, db_data: Dict, specs: Dict, profile_name: str,
+                         excluded_modules: list = None) -> Dict:
         """
         Generate complete QC comparison report
         
@@ -277,6 +290,7 @@ class QCComparator:
                 'errors': 0,
                 'no_spec': 0,
                 'missing_in_db': 0,
+                'excluded': 0,
                 'pass_rate': 0.0
             },
             'profile_name': profile_name,
@@ -348,20 +362,44 @@ class QCComparator:
         
         # Check for profile items missing in DB
         missing_items = self._find_missing_in_db(db_data, specs)
+        excluded_set = set(excluded_modules) if excluded_modules else set()
+        
         for missing in missing_items:
-            report['summary']['failed'] += 1
-            report['summary']['validated'] += 1
-            report['summary']['missing_in_db'] += 1
-            report['results'].append({
-                'module': missing['module'],
-                'part_type': missing['part_type'],
-                'part_name': missing['part_name'],
-                'item_name': missing['item_name'],
-                'actual_value': 'N/A',
-                'spec': missing['spec'],
-                'status': 'FAIL',
-                'message': '⚠️ Item not found in DB'
-            })
+            module_key = missing['module']
+            full_path = f"{missing['module']}.{missing['part_type']}.{missing['part_name']}.{missing['item_name']}"
+            
+            # Check if this item matches any excluded pattern
+            is_excluded = any(
+                self._match_exclusion_pattern(full_path, pattern)
+                for pattern in excluded_set
+            )
+            
+            if is_excluded:
+                report['summary']['excluded'] += 1
+                report['results'].append({
+                    'module': missing['module'],
+                    'part_type': missing['part_type'],
+                    'part_name': missing['part_name'],
+                    'item_name': missing['item_name'],
+                    'actual_value': 'N/A',
+                    'spec': missing['spec'],
+                    'status': 'EXCLUDED',
+                    'message': '옵션 미장착 (사용자 제외)'
+                })
+            else:
+                report['summary']['failed'] += 1
+                report['summary']['validated'] += 1
+                report['summary']['missing_in_db'] += 1
+                report['results'].append({
+                    'module': missing['module'],
+                    'part_type': missing['part_type'],
+                    'part_name': missing['part_name'],
+                    'item_name': missing['item_name'],
+                    'actual_value': 'N/A',
+                    'spec': missing['spec'],
+                    'status': 'FAIL',
+                    'message': '⚠️ Item not found in DB'
+                })
         
         # Calculate pass rate (exclude CHECK from denominator)
         validated_items = report['summary']['validated']
@@ -382,6 +420,7 @@ class QCComparator:
         self.logger.info(f"  Errors: {report['summary']['errors']}")
         self.logger.info(f"  No Spec: {report['summary']['no_spec']}")
         self.logger.info(f"  Missing in DB: {report['summary']['missing_in_db']}")
+        self.logger.info(f"  Excluded: {report['summary']['excluded']}")
         self.logger.info(f"  Pass Rate: {report['summary']['pass_rate']}%")
         self.logger.info("=" * 60)
         

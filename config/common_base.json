@@ -1,0 +1,63 @@
+{
+  "_version": "2.0",
+  "_description": "모든 장비 공통 QC 항목 (약 80%)",
+  "_migrated_from": "qc_specs.json",
+  "_migrated_at": "2026-02-02T20:24:26.633734",
+  "specs": {
+    "Dsp": {
+      "XScanner": {
+        "100um": [
+          {
+            "item_name": "ServoCutoffFrequencyHz",
+            "validation_type": "range",
+            "min_spec": 70.0,
+            "max_spec": 90.0,
+            "unit": "Hz",
+            "enabled": true,
+            "description": "Servo cutoff frequency"
+          },
+          {
+            "item_name": "ScanningRangeDefaultLow",
+            "validation_type": "range",
+            "min_spec": 0.1,
+            "max_spec": 0.3,
+            "unit": "um",
+            "enabled": true,
+            "description": "Lower scanning range default"
+          },
+          {
+            "item_name": "ScanningRangeDefaultMedium",
+            "validation_type": "range",
+            "min_spec": 0.4,
+            "max_spec": 0.6,
+            "unit": "um",
+            "enabled": true,
+            "description": "Medium scanning range default"
+          }
+        ],
+        "5um": [
+          {
+            "item_name": "ServoCutoffFrequencyHz",
+            "validation_type": "range",
+            "min_spec": 70.0,
+            "max_spec": 90.0,
+            "unit": "Hz",
+            "enabled": true
+          }
+        ]
+      },
+      "YScanner": {
+        "100um": [
+          {
+            "item_name": "ServoCutoffFrequencyHz",
+            "validation_type": "range",
+            "min_spec": 70.0,
+            "max_spec": 90.0,
+            "unit": "Hz",
+            "enabled": true
+          }
+        ]
+      }
+    }
+  }
+}
