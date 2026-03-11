@@ -15,10 +15,11 @@ def get_config_dir() -> Path:
         Path object pointing to the config directory
     """
     if getattr(sys, 'frozen', False):
-        # If running as compiled EXE, config is in the same directory as the executable
-        return Path(sys.executable).parent / "config"
+        # Running as compiled EXE — config is embedded inside the executable
+        base_path = Path(sys._MEIPASS)
+        return base_path / "config"
     else:
-        # If running as script, config is in root/config
+        # Running as script — config is in project root/config
         return Path(__file__).parent.parent.parent / "config"
 
 def get_settings_file() -> Path:

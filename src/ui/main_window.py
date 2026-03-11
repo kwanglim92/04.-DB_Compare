@@ -10,6 +10,7 @@ import sys
 from src.core.spec_manager import SpecManager
 from src.core.comparator import QCComparator
 from src.ui.tree_view import DBTreeView
+from src.utils.config_helper import get_config_dir
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -42,7 +43,7 @@ class MainWindow:
         self.load_settings()
         
         # Load spec config — try new multi-file structure first, fallback to legacy
-        config_dir = Path(__file__).parent.parent.parent / "config"
+        config_dir = get_config_dir()
         common_base = config_dir / "common_base.json"
         profiles_dir = config_dir / "profiles"
         
@@ -67,7 +68,7 @@ class MainWindow:
     
     def load_settings(self):
         """Load settings from config file"""
-        settings_file = Path(__file__).parent.parent.parent / "config" / "settings.json"
+        settings_file = get_config_dir() / "settings.json"
         if settings_file.exists():
             with open(settings_file, 'r', encoding='utf-8') as f:
                 settings = json.load(f)

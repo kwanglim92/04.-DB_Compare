@@ -711,22 +711,22 @@ class ProfileManagerWindow(ctk.CTkToplevel):
         try:
             # Delete from spec manager
             del self.spec_manager.equipment_profiles[self.current_profile]
+            # Delete profile JSON file
+            if self.spec_manager.config_dir:
+                profile_file = self.spec_manager.config_dir / "profiles" / f"{self.current_profile}.json"
+                if profile_file.exists():
+                    profile_file.unlink()
             
-            # Save to file
-            spec_file = Path(__file__).parent.parent.parent / "config" / "qc_specs.json"
-            if self.spec_manager.save_spec_file(str(spec_file)):
-                messagebox.showinfo("Success", f"Profile '{self.current_profile}' deleted")
-                self.profiles_modified = True
-                self.current_profile = None
+            messagebox.showinfo("Success", f"Profile '{self.current_profile}' deleted")
+            self.profiles_modified = True
+            self.current_profile = None
+            
+            # Clear spec tree
+            for item in self.spec_tree.get_children():
+                self.spec_tree.delete(item)
                 
-                # Clear spec tree
-                for item in self.spec_tree.get_children():
-                    self.spec_tree.delete(item)
-                    
-                # Reload profiles
-                self.load_profiles()
-            else:
-                messagebox.showerror("Error", "Failed to save changes")
+            # Reload profiles
+            self.load_profiles()
                 
         except Exception as e:
             messagebox.showerror("Error", f"Failed to delete profile:\n{e}")
@@ -776,9 +776,13 @@ class ProfileManagerWindow(ctk.CTkToplevel):
             profile_data = self.spec_manager.equipment_profiles.pop(self.current_profile)
             self.spec_manager.equipment_profiles[new_name] = profile_data
             
-            # Save to file
-            spec_file = Path(__file__).parent.parent.parent / "config" / "qc_specs.json"
-            if self.spec_manager.save_spec_file(str(spec_file)):
+            # Delete old profile file and save with new name
+            if self.spec_manager.config_dir:
+                old_file = self.spec_manager.config_dir / "profiles" / f"{self.current_profile}.json"
+                if old_file.exists():
+                    old_file.unlink()
+            
+            if self.spec_manager.save_equipment_profile(new_name):
                 messagebox.showinfo("Success", f"Renamed '{self.current_profile}' to '{new_name}'")
                 self.profiles_modified = True
                 self.current_profile = new_name
