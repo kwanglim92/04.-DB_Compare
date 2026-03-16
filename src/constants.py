@@ -4,7 +4,7 @@ Global constants, themes, and colors for the application
 """
 
 APP_VERSION = "1.0.0"
-APP_TITLE = "DB_Compare - QC Inspection Tool"
+APP_TITLE = "DB_Manager - QC Inspection Tool"
 DEVELOPER_INFO = "Version {version}  |  Developed by Levi.Beak  |  Contact: levi.beak@parksystems.com"
 
 # Appearance settings

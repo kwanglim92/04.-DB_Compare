@@ -1,4 +1,5 @@
 {
   "db_root_path": "C:/Users/Spare/Desktop/DB",
-  "default_equipment_profile": "NX-Wafer"
+  "default_equipment_profile": "NX-Wafer",
+  "review_checklist_enabled": false
 }

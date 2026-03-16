@@ -1,4 +1,5 @@
 import customtkinter as ctk
+import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog, filedialog
 import logging
 from pathlib import Path
@@ -26,7 +27,7 @@ class MainWindow:
         
         # Create main window
         self.root = ctk.CTk()
-        self.root.title("DB_Compare - QC Inspection Tool v1.0.0")
+        self.root.title("DB_Manager - QC Inspection Tool v1.0.0")
         self.root.geometry("1600x800")
         
         # Initialize variables
@@ -38,6 +39,7 @@ class MainWindow:
         self.qc_report = None
         self.spec_edit_mode = False
         self.temp_specs = {}  # Temporary specs being edited
+        self.review_checklist_enabled = False  # Toggled via Profile Manager
         
         # Load settings
         self.load_settings()
@@ -76,6 +78,7 @@ class MainWindow:
                 default_profile = settings.get('default_equipment_profile', '')
                 if default_profile:
                     self.current_profile = default_profile
+                self.review_checklist_enabled = settings.get('review_checklist_enabled', False)
     
     def create_menu(self):
         """Create menu bar"""
@@ -141,6 +144,22 @@ class MainWindow:
             state="disabled"
         )
         self.export_btn.pack(side="left", padx=5)
+        
+        # Review Checklist button
+        self.review_cl_btn = ctk.CTkButton(
+            toolbar,
+            text="Review Checklist",
+            font=("Segoe UI", 14, "bold"),
+            fg_color="#7b1fa2",
+            hover_color="#5c1680",
+            command=self.review_checklist,
+            width=160,
+            height=35,
+            state="disabled"
+        )
+        self.review_cl_btn.pack(side="left", padx=5)
+        if not self.review_checklist_enabled:
+            self.review_cl_btn.pack_forget()
         
         # Profile Manager button
         self.profile_mgr_btn = ctk.CTkButton(
@@ -332,6 +351,18 @@ class MainWindow:
         self.profile_viewer_tree.tag_configure('fail', background='#ffebee', foreground='#c62828')  # Light red bg, dark red text
         self.profile_viewer_tree.tag_configure('check', background='#e3f2fd', foreground='#1976d2')  # Light blue bg, blue text
         self.profile_viewer_tree.tag_configure('pending', foreground='gray50')
+        
+        # Right-click context menu for DB_Key copy
+        self.profile_viewer_menu = tk.Menu(self.root, tearoff=0)
+        self.profile_viewer_menu.add_command(
+            label="📋 Copy DB_Key",
+            command=self._copy_db_key
+        )
+        self.profile_viewer_menu.add_command(
+            label="📎 Append DB_Key (;)",
+            command=self._append_db_key
+        )
+        self.profile_viewer_tree.bind("<Button-3>", self._show_profile_viewer_menu)
     
     def create_status_bar(self):
         """Create status bar at bottom with version and developer info"""
@@ -358,6 +389,51 @@ class MainWindow:
         
         # Bind click to email (simple implementation)
         dev_info.bind("<Button-1>", lambda e: self.copy_email())
+    
+    def _get_db_key_from_selection(self):
+        """Get DB_Key string from selected Profile Viewer row"""
+        selection = self.profile_viewer_tree.selection()
+        if not selection:
+            return None
+        
+        item = self.profile_viewer_tree.item(selection[0])
+        values = item['values']
+        if len(values) >= 4:
+            # Module.PartType.Part.Item
+            return f"{values[0]}.{values[1]}.{values[2]}.{values[3]}"
+        return None
+    
+    def _show_profile_viewer_menu(self, event):
+        """Show right-click context menu on Profile Viewer"""
+        item = self.profile_viewer_tree.identify_row(event.y)
+        if item:
+            self.profile_viewer_tree.selection_set(item)
+            self.profile_viewer_menu.post(event.x_root, event.y_root)
+    
+    def _copy_db_key(self):
+        """Copy DB_Key of selected row to clipboard"""
+        db_key = self._get_db_key_from_selection()
+        if db_key:
+            self.root.clipboard_clear()
+            self.root.clipboard_append(db_key)
+            self.update_status(f"Copied: {db_key}")
+    
+    def _append_db_key(self):
+        """Append DB_Key to clipboard with ; separator"""
+        db_key = self._get_db_key_from_selection()
+        if db_key:
+            try:
+                existing = self.root.clipboard_get()
+                if existing and not existing.endswith(';'):
+                    new_value = f"{existing};{db_key}"
+                else:
+                    new_value = db_key
+            except tk.TclError:
+                new_value = db_key
+            
+            self.root.clipboard_clear()
+            self.root.clipboard_append(new_value)
+            self.update_status(f"Appended: {db_key}")
     
     def copy_email(self):
         self.root.clipboard_clear()
@@ -475,6 +551,7 @@ class MainWindow:
             
             self.display_db_tree()  # Refresh tree with QC results
             self.export_btn.configure(state="normal")
+            self.review_cl_btn.configure(state="normal")
             
             # Update status with pass rate
             pass_rate = self.qc_report['summary']['pass_rate']
@@ -658,14 +735,62 @@ class MainWindow:
             
             if filepath:
                 generator = ExcelReportGenerator()
-                generator.generate_report(self.qc_report, filepath)
+                success = generator.generate_report(self.qc_report, filepath)
                 
-                messagebox.showinfo("Export Success", f"Report exported to:\n{filepath}")
-                self.update_status(f"Report exported: {Path(filepath).name}")
+                if success:
+                    messagebox.showinfo("Export Success", f"Report exported to:\n{filepath}")
+                    self.update_status(f"Report exported: {Path(filepath).name}")
+                else:
+                    messagebox.showerror("Export Error", f"Failed to save report.\nPlease check if the file is already open in Excel.\n\nPath: {filepath}")
+                    self.update_status("Export failed")
                 
         except Exception as e:
             messagebox.showerror("Export Error", f"Failed to export report:\n{str(e)}")
             logger.error(f"Export error: {e}", exc_info=True)
+    
+    def review_checklist(self):
+        """Review Checklist Excel against QC results"""
+        if not self.qc_report:
+            messagebox.showwarning("Warning", "Please run QC inspection first.")
+            return
+        
+        # Select checklist Excel file
+        excel_path = filedialog.askopenfilename(
+            title="Select Checklist Excel File",
+            filetypes=[("Excel files", "*.xlsx"), ("All files", "*.*")]
+        )
+        if not excel_path:
+            return
+        
+        try:
+            from src.core.checklist_validator import ChecklistValidator
+            from src.ui.checklist_report_dialog import ChecklistReportDialog
+            
+            # Run validation (reads DB_Key column from Excel directly)
+            validator = ChecklistValidator()
+            results = validator.validate(excel_path, self.qc_report)
+            
+            if not results:
+                messagebox.showinfo(
+                    "No Results",
+                    "No DB_Key mappings found in the Checklist Excel.\n\n"
+                    "Add a 'DB_Key' column header and paste DB keys for items to validate.\n"
+                    "Use 'Export DB Keys' in the report dialog to get available keys."
+                )
+                return
+            
+            # Show report dialog (pass qc_report for Export DB Keys)
+            profile_name = self.current_profile or ''
+            dialog = ChecklistReportDialog(
+                self.root, results, excel_path, profile_name, self.qc_report
+            )
+            self.root.wait_window(dialog)
+            
+            self.update_status(f"Checklist review complete: {Path(excel_path).name}")
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Checklist review failed:\n{str(e)}")
+            logger.error(f"Checklist review error: {e}", exc_info=True)
     
     def open_profile_manager(self):
         """Open profile manager window"""
@@ -677,11 +802,11 @@ class MainWindow:
             parent=self.root
         )
         
-        if password == "pqclevi":
+        if password == "pqc123":
             from src.ui.profile_manager import ProfileManagerWindow
             
             # Create and show window
-            app = ProfileManagerWindow(self.root, self.spec_manager)
+            app = ProfileManagerWindow(self.root, self.spec_manager, main_window=self)
             
             # Wait for window to close
             self.root.wait_window(app)

@@ -9,7 +9,7 @@
 
 ```
 ┌──────────────────────────────────────────────────┐
-│             📋 QC Profile Manager                │
+│             QC Profile Manager                │
 ├──────────┬───────────────────────────────────────┤
 │ Profiles │  Spec Items (64 items)     🔍 Search  │
 │          │  [🌲 Group View toggle]               │

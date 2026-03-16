@@ -1,5 +1,5 @@
 """
-DB_Compare QC Inspection Tool
+DB_Manager QC Inspection Tool
 Core package for XML parsing, DB extraction, spec management, and comparison
 """
 

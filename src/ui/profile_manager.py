@@ -24,12 +24,13 @@ class ProfileManagerWindow(ctk.CTkToplevel):
     Features dual-view mode with table/tree toggle
     """
     
-    def __init__(self, parent, spec_manager):
+    def __init__(self, parent, spec_manager, main_window=None):
         super().__init__(parent)
         
         self.title("Profile Manager")
         self.geometry("1000x650")
         self.spec_manager = spec_manager
+        self.main_window = main_window  # Reference to MainWindow for settings sync
         
         # Make modal
         self.transient(parent)
@@ -59,7 +60,7 @@ class ProfileManagerWindow(ctk.CTkToplevel):
         # Header
         header = ctk.CTkLabel(
             self,
-            text="📋 QC Profile Manager",
+            text="QC Profile Manager",
             font=("Segoe UI", 18, "bold")
         )
         header.pack(pady=15)
@@ -153,6 +154,24 @@ class ProfileManagerWindow(ctk.CTkToplevel):
             fg_color="#4caf50",
             hover_color="#388e3c",
             height=32
+        ).pack(fill="x", pady=2)
+        
+        # Separator
+        sep2 = ctk.CTkFrame(btn_frame, height=2, fg_color="gray30")
+        sep2.pack(fill="x", pady=10)
+        
+        # Review Checklist toggle
+        self.cl_toggle_var = ctk.BooleanVar(
+            value=getattr(self.main_window, 'review_checklist_enabled', False)
+        )
+        ctk.CTkSwitch(
+            btn_frame,
+            text="Review Checklist",
+            variable=self.cl_toggle_var,
+            command=self._toggle_review_checklist,
+            font=("Segoe UI", 10),
+            onvalue=True,
+            offvalue=False
         ).pack(fill="x", pady=2)
         
         # Right panel - Spec items
@@ -1169,6 +1188,34 @@ class ProfileManagerWindow(ctk.CTkToplevel):
         except Exception as e:
             logger.error(f"Update spec error: {e}", exc_info=True)
             raise
+    
+    def _toggle_review_checklist(self):
+        """Toggle Review Checklist feature and save to settings"""
+        import json
+        from src.utils.config_helper import get_config_dir
+        
+        enabled = self.cl_toggle_var.get()
+        
+        # Update main window
+        self.main_window.review_checklist_enabled = enabled
+        if enabled:
+            self.main_window.review_cl_btn.pack(side="left", padx=5,
+                before=self.main_window.profile_mgr_btn)
+        else:
+            self.main_window.review_cl_btn.pack_forget()
+        
+        # Save to settings.json
+        settings_file = get_config_dir() / "settings.json"
+        settings = {}
+        if settings_file.exists():
+            with open(settings_file, 'r', encoding='utf-8') as f:
+                settings = json.load(f)
+        settings['review_checklist_enabled'] = enabled
+        with open(settings_file, 'w', encoding='utf-8') as f:
+            json.dump(settings, f, indent=2, ensure_ascii=False)
+        
+        status = "ON" if enabled else "OFF"
+        logger.info(f"Review Checklist: {status}")
     
     def on_close(self):
         """Handle window close"""
