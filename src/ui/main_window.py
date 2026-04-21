@@ -10,8 +10,10 @@ import sys
 
 from src.core.spec_manager import SpecManager
 from src.core.comparator import QCComparator
+from src.core.sync_manager import SyncManager
 from src.ui.tree_view import DBTreeView
-from src.utils.config_helper import get_config_dir
+from src.utils.config_helper import get_config_dir, get_cache_dir, get_appdata_dir
+from src.utils.credential_manager import CredentialManager
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -27,7 +29,7 @@ class MainWindow:
         
         # Create main window
         self.root = ctk.CTk()
-        self.root.title("DB_Manager - QC Inspection Tool v1.0.0")
+        self.root.title("DB_Manager - QC Inspection Tool v1.3.0")
         self.root.geometry("1600x800")
         
         # Initialize variables
@@ -40,15 +42,23 @@ class MainWindow:
         self.spec_edit_mode = False
         self.temp_specs = {}  # Temporary specs being edited
         self.review_checklist_enabled = False  # Toggled via Profile Manager
-        
+        self.sync_mode = "offline"  # "online" or "offline"
+
+        # Initialize sync manager
+        self.sync_manager = SyncManager(get_cache_dir())
+        self.credential_manager = CredentialManager()
+
         # Load settings
         self.load_settings()
-        
+
+        # Attempt server sync if online mode
+        self._initial_sync()
+
         # Load spec config — try new multi-file structure first, fallback to legacy
-        config_dir = get_config_dir()
+        config_dir = get_config_dir(mode=self.sync_mode)
         common_base = config_dir / "common_base.json"
         profiles_dir = config_dir / "profiles"
-        
+
         if common_base.exists() and profiles_dir.exists():
             logger.info("Loading config from multi-file structure")
             self.spec_manager.load_multi_file_config(config_dir)
@@ -58,27 +68,83 @@ class MainWindow:
             if spec_file.exists():
                 logger.info("Loading config from legacy qc_specs.json")
                 self.spec_manager.load_spec_file(str(spec_file))
-        
+
         # Create UI
         self.create_menu()
         self.create_toolbar()
         self.create_main_content()
         self.create_status_bar()
-        
-        # Update status
-        self.update_status("Ready")
+
+        # Update status with sync info
+        self._update_sync_status()
     
     def load_settings(self):
         """Load settings from config file"""
         settings_file = get_config_dir() / "settings.json"
         if settings_file.exists():
-            with open(settings_file, 'r', encoding='utf-8') as f:
-                settings = json.load(f)
+            try:
+                with open(settings_file, 'r', encoding='utf-8') as f:
+                    settings = json.load(f)
                 self.db_root = settings.get('db_root_path', '')
                 default_profile = settings.get('default_equipment_profile', '')
                 if default_profile:
                     self.current_profile = default_profile
                 self.review_checklist_enabled = settings.get('review_checklist_enabled', False)
+            except (json.JSONDecodeError, OSError) as e:
+                logger.warning(f"Failed to load settings, using defaults: {e}")
+
+        # Load sync mode from credentials
+        creds = self.credential_manager.load_credentials()
+        if creds:
+            self.sync_mode = creds.get('mode', 'offline')
+
+    def _initial_sync(self):
+        """Attempt server sync on startup if online mode (non-blocking)"""
+        if self.sync_mode != "online":
+            return
+
+        creds = self.credential_manager.load_credentials()
+        if not creds:
+            return
+
+        self.sync_manager.configure_server(
+            host=creds['host'],
+            port=creds['port'],
+            dbname=creds['dbname'],
+            user=creds['user'],
+            password=creds['password']
+        )
+
+        def _do_sync():
+            if self.sync_manager.connect():
+                success, msg = self.sync_manager.sync()
+                self.sync_manager.disconnect()
+                self.root.after(0, lambda: self._on_initial_sync_done(success, msg))
+            else:
+                self.root.after(0, lambda: self._on_initial_sync_done(
+                    False, "서버에 연결할 수 없습니다"))
+
+        threading.Thread(target=_do_sync, daemon=True).start()
+
+    def _on_initial_sync_done(self, success: bool, msg: str):
+        """Handle initial sync result on main thread"""
+        if success:
+            logger.info(f"Startup sync: {msg}")
+            self._reload_specs()
+            self.update_status(f"Ready (Online - {msg})")
+        else:
+            logger.warning(f"Startup sync failed: {msg}")
+            self.update_status("Ready (Online - 로컬 캐시 사용)")
+
+    def _update_sync_status(self):
+        """Update status bar with sync mode info"""
+        if self.sync_mode == "online":
+            if self.sync_manager.has_local_cache():
+                self.update_status("Ready (Online Mode)")
+            else:
+                self.update_status("Ready (Online - No cache yet)")
+        else:
+            self.update_status("Ready")
     
     def create_menu(self):
         """Create menu bar"""
@@ -161,19 +227,6 @@ class MainWindow:
         if not self.review_checklist_enabled:
             self.review_cl_btn.pack_forget()
         
-        # Profile Manager button
-        self.profile_mgr_btn = ctk.CTkButton(
-            toolbar,
-            text="Profile Manager",
-            font=("Segoe UI", 14, "bold"),
-            fg_color="#555555",
-            hover_color="#333333",
-            command=self.open_profile_manager,
-            width=140,
-            height=35
-        )
-        self.profile_mgr_btn.pack(side="left", padx=20)
-        
         # Dark mode toggle
         self.dark_mode_switch = ctk.CTkSwitch(
             toolbar,
@@ -185,6 +238,30 @@ class MainWindow:
         )
         self.dark_mode_switch.select()  # Start in dark mode
         self.dark_mode_switch.pack(side="right", padx=10)
+
+        # Admin button (gated entry for server settings + spec management)
+        self.admin_btn = ctk.CTkButton(
+            toolbar,
+            text="🔒 Admin",
+            font=("Segoe UI", 12, "bold"),
+            fg_color="#37474f",
+            hover_color="#263238",
+            command=self.open_admin_window,
+            width=90,
+            height=30
+        )
+        self.admin_btn.pack(side="right", padx=5)
+
+        # Sync indicator (display-only)
+        sync_text = "● Online" if self.sync_mode == "online" else "● Offline"
+        sync_color = "#0d7d3d" if self.sync_mode == "online" else "gray50"
+        self.sync_indicator = ctk.CTkLabel(
+            toolbar,
+            text=sync_text,
+            font=("Segoe UI", 11, "bold"),
+            text_color=sync_color
+        )
+        self.sync_indicator.pack(side="right", padx=(5, 5))
     
     def create_main_content(self):
         """Create main content area: DB Tree + 2-Panel Right (Results + Profile Viewer)"""
@@ -792,33 +869,26 @@ class MainWindow:
             messagebox.showerror("Error", f"Checklist review failed:\n{str(e)}")
             logger.error(f"Checklist review error: {e}", exc_info=True)
     
-    def open_profile_manager(self):
-        """Open profile manager window"""
-        # Request password
-        password = simpledialog.askstring(
-            "Authentication Required",
-            "Enter administrator password:",
-            show='*',
-            parent=self.root
+    def open_admin_window(self):
+        """Open the unified Admin Window (password-protected)."""
+        from src.ui.admin_window import AdminWindow, prompt_admin_password
+
+        if not prompt_admin_password(self.root):
+            return
+
+        admin = AdminWindow(
+            self.root,
+            sync_manager=self.sync_manager,
+            sync_mode=self.sync_mode,
+            on_settings_saved=self._on_server_settings_saved,
+            on_spec_changed=self._on_admin_spec_changed,
         )
-        
-        if password == "pqc123":
-            from src.ui.profile_manager import ProfileManagerWindow
-            
-            # Create and show window
-            app = ProfileManagerWindow(self.root, self.spec_manager, main_window=self)
-            
-            # Wait for window to close
-            self.root.wait_window(app)
-            
-            # Refresh profiles
-            self.update_profile_list()
-            
-            # Refresh viewer with current profile
-            if self.current_profile:
-                self.load_profile_to_viewer(self.current_profile)
-        elif password is not None:
-            messagebox.showerror("Access Denied", "Incorrect password.")
+        self.root.wait_window(admin)
+
+        # Refresh after admin window closes
+        if self.current_profile:
+            self.load_profile_to_viewer(self.current_profile)
+        self.update_profile_list()
     
     def update_profile_list(self):
         """Update profile combo box"""
@@ -916,6 +986,43 @@ class MainWindow:
         new_mode = "light" if current_mode == "Dark" else "dark"
         ctk.set_appearance_mode(new_mode)
     
+    def _on_admin_spec_changed(self):
+        """Called when server-side specs are mutated via Admin window."""
+        # Trigger re-sync so local cache stays fresh
+        if self.sync_mode == "online":
+            self._initial_sync()
+
+    def _on_server_settings_saved(self, new_mode: str):
+        """Handle server settings saved"""
+        self.sync_mode = new_mode
+
+        # Update sync indicator
+        if hasattr(self, 'sync_indicator'):
+            sync_text = "● Online" if new_mode == "online" else "● Offline"
+            sync_color = "#0d7d3d" if new_mode == "online" else "gray50"
+            self.sync_indicator.configure(text=sync_text, text_color=sync_color)
+
+        # If switched to online, attempt sync and reload
+        if new_mode == "online":
+            self._initial_sync()
+            self._reload_specs()
+            self._update_sync_status()
+
+    def _reload_specs(self):
+        """Reload spec config from current mode's config dir"""
+        config_dir = get_config_dir(mode=self.sync_mode)
+        common_base = config_dir / "common_base.json"
+        profiles_dir = config_dir / "profiles"
+
+        if common_base.exists() and profiles_dir.exists():
+            self.spec_manager = SpecManager()
+            self.spec_manager.load_multi_file_config(config_dir)
+            logger.info(f"Reloaded specs from {config_dir}")
+
+            # Refresh profile combo
+            if hasattr(self, 'profile_combo'):
+                self.profile_combo.configure(values=self.get_profile_list())
+
     def run(self):
         """Start the application"""
         self.root.mainloop()

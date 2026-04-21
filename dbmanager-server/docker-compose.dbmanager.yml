@@ -1,0 +1,38 @@
+services:
+  dbmanager-postgres:
+    image: postgres:16-alpine
+    container_name: dbmanager-db
+    restart: unless-stopped
+    ports:
+      - "${DB_PORT:-5434}:5432"
+    environment:
+      POSTGRES_DB: ${DB_NAME:-dbmanager}
+      POSTGRES_USER: ${DB_USER:-dbmanager}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+    volumes:
+      - dbmanager_data:/var/lib/postgresql/data
+      - ./init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-dbmanager}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  dbmanager-pgadmin:
+    image: dpage/pgadmin4
+    container_name: dbmanager-pgadmin
+    restart: unless-stopped
+    ports:
+      - "${PGADMIN_PORT:-5050}:80"
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@local.com}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:?PGADMIN_PASSWORD is required}
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    depends_on:
+      dbmanager-postgres:
+        condition: service_healthy
+
+volumes:
+  dbmanager_data:
+  pgadmin_data:

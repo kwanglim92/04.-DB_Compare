@@ -37,28 +37,27 @@ class ExcelReportGenerator:
             output_path: Path to save Excel file
             
         Returns:
-            True if successful, False otherwise
+            True if successful
+            
+        Raises:
+            Exception: If report generation fails
         """
-        try:
-            wb = Workbook()
-            
-            # Remove default sheet
-            if 'Sheet' in wb.sheetnames:
-                wb.remove(wb['Sheet'])
-            
-            # Create sheets
-            self.create_summary_sheet(wb, qc_report)
-            self.create_all_items_sheet(wb, qc_report)
-            self.create_failed_items_sheet(wb, qc_report)
-            
-            # Save workbook
-            wb.save(output_path)
-            self.logger.info(f"Report saved to: {output_path}")
-            return True
-            
-        except Exception as e:
-            self.logger.error(f"Failed to generate report: {e}", exc_info=True)
-            return False
+        wb = Workbook()
+        
+        # Remove default sheet
+        if 'Sheet' in wb.sheetnames:
+            wb.remove(wb['Sheet'])
+        
+        # Create sheets
+        self.create_summary_sheet(wb, qc_report)
+        self.create_all_items_sheet(wb, qc_report)
+        self.create_failed_items_sheet(wb, qc_report)
+        
+        # Save workbook
+        wb.save(output_path)
+        self.logger.info(f"Report saved to: {output_path}")
+        return True
+
     
     def create_summary_sheet(self, wb: Workbook, report: Dict):
         """Create summary sheet with statistics"""
@@ -113,9 +112,9 @@ class ExcelReportGenerator:
             ws[f'A{row}'].font = Font(bold=True)
             
             if "Passed" in label:
-                ws[f'A{row}'].fill = PatternFill(start_color=self.colors['pass'], fill_type="solid")
+                ws[f'A{row}'].fill = PatternFill(start_color=self.colors['pass_bg'], fill_type="solid")
             elif "Failed" in label:
-                ws[f'A{row}'].fill = PatternFill(start_color=self.colors['fail'], fill_type="solid")
+                ws[f'A{row}'].fill = PatternFill(start_color=self.colors['fail_bg'], fill_type="solid")
             elif "Pass Rate" in label:
                 ws[f'A{row}'].font = Font(bold=True, size=12)
                 ws[f'B{row}'].font = Font(bold=True, size=12, color="006400")
@@ -144,7 +143,7 @@ class ExcelReportGenerator:
         for col, header in enumerate(headers, start=1):
             cell = ws.cell(row=1, column=col, value=header)
             cell.font = Font(bold=True, color="FFFFFF")
-            cell.fill = PatternFill(start_color=self.colors['header'], fill_type="solid")
+            cell.fill = PatternFill(start_color=self.colors['header_bg'], fill_type="solid")
             cell.alignment = Alignment(horizontal='center', vertical='center')
         
         # Data
@@ -162,17 +161,17 @@ class ExcelReportGenerator:
             # Color code status
             status = result.get('status', '')
             if status == 'PASS':
-                ws[f'G{row}'].fill = PatternFill(start_color=self.colors['pass'], fill_type="solid")
+                ws[f'G{row}'].fill = PatternFill(start_color=self.colors['pass_bg'], fill_type="solid")
             elif status == 'FAIL':
-                ws[f'G{row}'].fill = PatternFill(start_color=self.colors['fail'], fill_type="solid")
+                ws[f'G{row}'].fill = PatternFill(start_color=self.colors['fail_bg'], fill_type="solid")
                 ws[f'G{row}'].font = Font(bold=True, color="8B0000")
             elif status == 'CHECK':
-                ws[f'G{row}'].fill = PatternFill(start_color=self.colors['check'], fill_type="solid")
+                ws[f'G{row}'].fill = PatternFill(start_color=self.colors['check_bg'], fill_type="solid")
                 ws[f'G{row}'].font = Font(color="1976D2")
             elif status == 'NO_SPEC':
-                ws[f'G{row}'].fill = PatternFill(start_color=self.colors['no_spec'], fill_type="solid")
+                ws[f'G{row}'].fill = PatternFill(start_color="FFFFF9C4", fill_type="solid")  # light yellow
             elif status == 'ERROR':
-                ws[f'G{row}'].fill = PatternFill(start_color=self.colors['error'], fill_type="solid")
+                ws[f'G{row}'].fill = PatternFill(start_color="FFFCE4EC", fill_type="solid")  # light pink
             
             ws[f'G{row}'].alignment = Alignment(horizontal='center')
             row += 1
@@ -201,7 +200,7 @@ class ExcelReportGenerator:
         for col, header in enumerate(headers, start=1):
             cell = ws.cell(row=1, column=col, value=header)
             cell.font = Font(bold=True, color="FFFFFF")
-            cell.fill = PatternFill(start_color=self.colors['header'], fill_type="solid")
+            cell.fill = PatternFill(start_color=self.colors['header_bg'], fill_type="solid")
             cell.alignment = Alignment(horizontal='center', vertical='center')
         
         # Filter failed items
@@ -225,7 +224,7 @@ class ExcelReportGenerator:
             ws[f'H{row}'] = result.get('message', '')
             
             # Highlight failed items
-            ws[f'G{row}'].fill = PatternFill(start_color=self.colors['fail'], fill_type="solid")
+            ws[f'G{row}'].fill = PatternFill(start_color=self.colors['fail_bg'], fill_type="solid")
             ws[f'G{row}'].font = Font(bold=True, color="8B0000")
             ws[f'G{row}'].alignment = Alignment(horizontal='center')
             

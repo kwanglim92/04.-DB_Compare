@@ -17,6 +17,17 @@ openpyxl>=3.1.2
 # Used for: QC inspection report generation (Summary, All Items, Failed Items sheets)
 
 # ============================================
+# Server Sync & Security
+# ============================================
+psycopg2-binary>=2.9
+# PostgreSQL database driver
+# Used for: Server DB sync (online mode)
+
+cryptography>=41.0
+# Encryption library
+# Used for: Encrypting server credentials (Fernet symmetric encryption)
+
+# ============================================
 # Optional but Recommended
 # ============================================
 # Pillow>=10.0.0
