@@ -17,6 +17,13 @@ openpyxl>=3.1.2
 # Used for: QC inspection report generation (Summary, All Items, Failed Items sheets)
 
 # ============================================
+# Fuzzy Matching
+# ============================================
+rapidfuzz>=3.0
+# Fast string similarity matching (C implementation, MIT license)
+# Used for: Checklist item → DB key fuzzy mapping (5-stage cascade)
+
+# ============================================
 # Server Sync & Security
 # ============================================
 psycopg2-binary>=2.9

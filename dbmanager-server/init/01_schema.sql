@@ -139,6 +139,26 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- ===========================================
+-- checklist_mappings: Item name → DB key mapping dictionary
+-- ===========================================
+CREATE TABLE checklist_mappings (
+    id          SERIAL PRIMARY KEY,
+    model       VARCHAR(200) NOT NULL,         -- e.g. "NX-Wafer 200mm"
+    module      VARCHAR(200) NOT NULL,         -- B-column normalized value
+    item_norm   VARCHAR(500) NOT NULL,         -- C-column normalized value
+    db_key      VARCHAR(500) NOT NULL,         -- "Module.PartType.PartName.ItemName"
+    confidence  NUMERIC(3,2) NOT NULL DEFAULT 0.95,
+    verified_by VARCHAR(200),
+    verified_at TIMESTAMPTZ DEFAULT NOW(),
+    source      VARCHAR(50) NOT NULL DEFAULT 'manual',  -- 'manual' | 'fuzzy_confirmed' | 'explicit'
+    UNIQUE(model, module, item_norm)
+);
+
+INSERT INTO sync_versions (table_name, version) VALUES ('checklist_mappings', 1);
+
+CREATE INDEX idx_checklist_mappings_model ON checklist_mappings(model);
+
+-- ===========================================
 -- Indexes
 -- ===========================================
 CREATE INDEX idx_specs_module ON specs(module);

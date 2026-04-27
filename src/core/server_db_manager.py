@@ -19,6 +19,7 @@ except ImportError:
 _ALLOWED_TABLES = frozenset({
     'specs', 'profiles', 'profile_overrides',
     'profile_additional_checks', 'profile_excluded_items',
+    'checklist_mappings',
 })
 
 
@@ -562,3 +563,63 @@ class ServerDBManager:
         versions = {row[0]: row[1] for row in cursor.fetchall()}
         cursor.close()
         return versions
+
+    # ========================================
+    # Checklist Mappings
+    # ========================================
+
+    def upsert_checklist_mapping(self, model: str, module: str, item_norm: str,
+                                  db_key: str, confidence: float = 0.95,
+                                  verified_by: Optional[str] = None,
+                                  source: str = 'manual') -> bool:
+        """Insert or update a checklist item→DB key mapping"""
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("""
+                INSERT INTO checklist_mappings
+                    (model, module, item_norm, db_key, confidence, verified_by, source)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (model, module, item_norm) DO UPDATE SET
+                    db_key = EXCLUDED.db_key,
+                    confidence = EXCLUDED.confidence,
+                    verified_by = EXCLUDED.verified_by,
+                    verified_at = NOW(),
+                    source = EXCLUDED.source
+            """, (model, module, item_norm, db_key, confidence, verified_by, source))
+            cursor.execute("SELECT bump_version('checklist_mappings')")
+            self.conn.commit()
+            cursor.close()
+            logger.info(f"Upserted checklist mapping: {model}/{module}/{item_norm} → {db_key}")
+            return True
+        except Exception as e:
+            self.conn.rollback()
+            logger.error(f"Failed to upsert checklist mapping: {e}")
+            return False
+
+    def fetch_checklist_mappings(self, model: str) -> List[Dict]:
+        """Fetch all mappings for a given model"""
+        cursor = self.conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cursor.execute("""
+            SELECT id, model, module, item_norm, db_key,
+                   confidence, verified_by, verified_at, source
+            FROM checklist_mappings
+            WHERE model = %s
+            ORDER BY module, item_norm
+        """, (model,))
+        rows = [dict(row) for row in cursor.fetchall()]
+        cursor.close()
+        return rows
+
+    def delete_checklist_mapping(self, mapping_id: int) -> bool:
+        """Delete a single mapping by id"""
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("DELETE FROM checklist_mappings WHERE id=%s", (mapping_id,))
+            cursor.execute("SELECT bump_version('checklist_mappings')")
+            self.conn.commit()
+            cursor.close()
+            return True
+        except Exception as e:
+            self.conn.rollback()
+            logger.error(f"Failed to delete checklist mapping {mapping_id}: {e}")
+            return False

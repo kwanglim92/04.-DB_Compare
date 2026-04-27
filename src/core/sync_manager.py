@@ -400,3 +400,63 @@ class SyncManager:
     def get_cache_dir(self) -> Path:
         """Get the cache directory path"""
         return self.cache_dir
+
+    # ========================================
+    # Checklist Mappings Sync
+    # ========================================
+
+    def sync_checklist_mappings(self, model: str) -> Tuple[bool, str]:
+        """Download checklist mappings for model from server → local JSON cache.
+        Falls back to existing local cache if server is unreachable.
+        """
+        if not self.is_connected:
+            cached = self._load_local_mappings(model)
+            if cached:
+                return True, f"오프라인 캐시 사용 ({len(cached)}개)"
+            return False, "서버 미연결, 로컬 캐시 없음"
+
+        try:
+            from .server_db_manager import ServerDBManager
+            db = ServerDBManager(self.conn)
+            rows = db.fetch_checklist_mappings(model)
+            # Convert Decimal confidence to float for JSON serialization
+            for row in rows:
+                if 'confidence' in row and row['confidence'] is not None:
+                    row['confidence'] = float(row['confidence'])
+                if 'verified_at' in row and row['verified_at'] is not None:
+                    row['verified_at'] = row['verified_at'].isoformat()
+            self._save_local_mappings(model, rows)
+            logger.info(f"Synced checklist_mappings for '{model}': {len(rows)} rows")
+            return True, f"동기화 완료 ({len(rows)}개)"
+        except Exception as e:
+            logger.error(f"sync_checklist_mappings failed: {e}")
+            cached = self._load_local_mappings(model)
+            if cached:
+                return True, f"오류로 캐시 폴백 ({len(cached)}개)"
+            return False, f"동기화 실패: {e}"
+
+    def _load_local_mappings(self, model: str) -> list:
+        """Load cached checklist mappings for model from local JSON"""
+        cache_file = self._mapping_cache_path(model)
+        if not cache_file.exists():
+            return []
+        try:
+            with open(cache_file, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception as e:
+            logger.error(f"Failed to load local mappings for '{model}': {e}")
+            return []
+
+    def _save_local_mappings(self, model: str, data: list):
+        """Save checklist mappings for model to local JSON cache"""
+        cache_file = self._mapping_cache_path(model)
+        try:
+            with open(cache_file, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+        except OSError as e:
+            logger.error(f"Failed to save local mappings for '{model}': {e}")
+
+    def _mapping_cache_path(self, model: str) -> Path:
+        """Return local cache path for a model's checklist mappings"""
+        safe_name = "".join(c if c.isalnum() or c in "-_ " else "_" for c in model)
+        return self.cache_dir / f"checklist_mappings_{safe_name}.json"

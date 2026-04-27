@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m pytest tests/ -v --tb=short)",
+      "Bash(grep -E \"\\\\.py$\")",
+      "Bash(python main.py)",
+      "Bash(python -m pytest tests/ -q)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)",
+      "Skill(cwm:dev-manual)",
+      "Bash(python -m pytest tests/ -x -q)",
+      "Bash(git -C \"C:/Users/Spare/Desktop/03. Program/04. DB_Compare\" status)"
+    ]
+  }
+}

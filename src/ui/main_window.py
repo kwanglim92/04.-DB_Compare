@@ -242,6 +242,20 @@ class MainWindow:
         self.review_cl_btn.pack(side="left", padx=5)
         if not self.review_checklist_enabled:
             self.review_cl_btn.pack_forget()
+
+        # Auto-Fill Checklist button (always visible, enabled after QC run)
+        self.autofill_cl_btn = ctk.CTkButton(
+            toolbar,
+            text="Auto-Fill Checklist",
+            font=("Segoe UI", 14, "bold"),
+            fg_color="#00695c",
+            hover_color="#004d40",
+            command=self.autofill_checklist,
+            width=175,
+            height=35,
+            state="disabled"
+        )
+        self.autofill_cl_btn.pack(side="left", padx=5)
         
         # Dark mode toggle
         self.dark_mode_switch = ctk.CTkSwitch(
@@ -875,7 +889,8 @@ class MainWindow:
             self.display_db_tree()  # Refresh tree with QC results
             self.export_btn.configure(state="normal")
             self.review_cl_btn.configure(state="normal")
-            
+            self.autofill_cl_btn.configure(state="normal")
+
             # Update status with pass rate
             pass_rate = self.qc_report['summary']['pass_rate']
             excluded_count = self.qc_report['summary'].get('excluded', 0)
@@ -918,7 +933,8 @@ class MainWindow:
             self.update_profile_viewer_with_results(self.qc_report)
             self.display_db_tree()
             self.export_btn.configure(state="normal")
-            
+            self.autofill_cl_btn.configure(state="normal")
+
             pass_rate = self.qc_report['summary']['pass_rate']
             self.update_status(f"QC Complete - Pass Rate: {pass_rate}%")
     
@@ -1110,11 +1126,46 @@ class MainWindow:
             self.root.wait_window(dialog)
             
             self.update_status(f"Checklist review complete: {Path(excel_path).name}")
-            
+
         except Exception as e:
             messagebox.showerror("Error", f"Checklist review failed:\n{str(e)}")
             logger.error(f"Checklist review error: {e}", exc_info=True)
-    
+
+    def autofill_checklist(self):
+        """Auto-fill QC values into Checklist Excel G-column"""
+        if not self.qc_report:
+            messagebox.showwarning("Warning", "Please run QC inspection first.")
+            return
+
+        excel_path = filedialog.askopenfilename(
+            title="Select Checklist Excel File",
+            filetypes=[("Excel files", "*.xlsx"), ("All files", "*.*")]
+        )
+        if not excel_path:
+            return
+
+        try:
+            from src.ui.checklist_autofill_dialog import ChecklistAutoFillDialog
+
+            sync_manager = getattr(self, 'sync_manager', None)
+            model = getattr(self, 'current_model', '') or ''
+            profile_name = self.current_profile or ''
+
+            dialog = ChecklistAutoFillDialog(
+                self.root,
+                excel_path=excel_path,
+                qc_report=self.qc_report,
+                sync_manager=sync_manager,
+                model=model,
+                profile_name=profile_name,
+            )
+            self.root.wait_window(dialog)
+            self.update_status(f"Auto-fill complete: {Path(excel_path).name}")
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Auto-fill failed:\n{str(e)}")
+            logger.error(f"Auto-fill error: {e}", exc_info=True)
+
     def open_admin_window(self):
         """Open the unified Admin Window (password-protected)."""
         from src.ui.admin_window import AdminWindow, prompt_admin_password
