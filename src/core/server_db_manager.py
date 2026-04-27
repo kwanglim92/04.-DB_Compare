@@ -250,6 +250,143 @@ class ServerDBManager:
         return self._execute_with_bump('profiles', queries)
 
     # ========================================
+    # Bulk import (F2)
+    # ========================================
+
+    def bulk_add_specs(self, profile_id: Optional[int],
+                       items: List[Dict],
+                       conflict_strategy: str = 'skip') -> Dict:
+        """Bulk add specs to Common Base or to a profile (additional checks).
+
+        Single-transaction insert/update with conflict handling.
+
+        Args:
+            profile_id: None ⇒ Common Base; int ⇒ profile additional checks
+            items: list of spec dicts (module, part_type, part_name, item_name +
+                   optional validation_type, min_spec, max_spec, expected_value,
+                   unit, enabled, description)
+            conflict_strategy: 'skip' (keep existing) | 'update' (overwrite existing)
+                               | 'abort' (rollback if any conflict)
+
+        Returns:
+            dict with keys: added, updated, skipped, errors
+        """
+        result = {'added': 0, 'updated': 0, 'skipped': 0, 'errors': []}
+
+        if conflict_strategy not in ('skip', 'update', 'abort'):
+            result['errors'].append(f"Invalid conflict_strategy: {conflict_strategy}")
+            return result
+
+        if not items:
+            return result
+
+        # Choose target table + version target
+        is_common_base = (profile_id is None)
+        version_target = 'specs' if is_common_base else 'profiles'
+
+        # Fetch existing keys for conflict detection
+        try:
+            cursor = self.conn.cursor()
+            if is_common_base:
+                cursor.execute("""
+                    SELECT id, module, part_type, part_name, item_name FROM specs
+                """)
+            else:
+                cursor.execute("""
+                    SELECT id, module, part_type, part_name, item_name
+                    FROM profile_additional_checks WHERE profile_id=%s
+                """, (profile_id,))
+            existing = {(r[1], r[2], r[3], r[4]): r[0] for r in cursor.fetchall()}
+            cursor.close()
+        except Exception as e:
+            self.conn.rollback()
+            result['errors'].append(f"Failed to read existing keys: {e}")
+            return result
+
+        # Single transaction
+        try:
+            cursor = self.conn.cursor()
+            for spec in items:
+                key = (spec.get('module'), spec.get('part_type'),
+                       spec.get('part_name'), spec.get('item_name'))
+                if not all(key):
+                    result['errors'].append(f"Skipping incomplete item: {spec}")
+                    result['skipped'] += 1
+                    continue
+
+                params_common = (
+                    spec.get('validation_type', 'range'),
+                    spec.get('min_spec'), spec.get('max_spec'),
+                    spec.get('expected_value'), spec.get('unit', ''),
+                    spec.get('enabled', True), spec.get('description', '')
+                )
+
+                if key in existing:
+                    if conflict_strategy == 'abort':
+                        raise ValueError(
+                            f"Conflict (abort policy): {'.'.join(key)}")
+                    elif conflict_strategy == 'skip':
+                        result['skipped'] += 1
+                        continue
+                    elif conflict_strategy == 'update':
+                        existing_id = existing[key]
+                        if is_common_base:
+                            cursor.execute("""
+                                UPDATE specs SET validation_type=%s, min_spec=%s,
+                                    max_spec=%s, expected_value=%s, unit=%s,
+                                    enabled=%s, description=%s WHERE id=%s
+                            """, params_common + (existing_id,))
+                        else:
+                            cursor.execute("""
+                                UPDATE profile_additional_checks
+                                SET validation_type=%s, min_spec=%s, max_spec=%s,
+                                    expected_value=%s, unit=%s, enabled=%s,
+                                    description=%s WHERE id=%s
+                            """, params_common + (existing_id,))
+                        result['updated'] += 1
+                else:
+                    if is_common_base:
+                        cursor.execute("""
+                            INSERT INTO specs
+                                (module, part_type, part_name, item_name,
+                                 validation_type, min_spec, max_spec,
+                                 expected_value, unit, enabled, description)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        """, key + params_common)
+                    else:
+                        cursor.execute("""
+                            INSERT INTO profile_additional_checks
+                                (profile_id, module, part_type, part_name,
+                                 item_name, validation_type, min_spec, max_spec,
+                                 expected_value, unit, enabled, description)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        """, (profile_id,) + key + params_common)
+                    result['added'] += 1
+
+            # Bump version once for the whole batch
+            cursor.execute("SELECT bump_version(%s)", (version_target,))
+            self.conn.commit()
+            cursor.close()
+            logger.info(
+                f"bulk_add_specs ({'common_base' if is_common_base else f'profile {profile_id}'}): "
+                f"+{result['added']} ~{result['updated']} skip{result['skipped']}")
+        except ValueError as e:
+            # abort path
+            self.conn.rollback()
+            result['errors'].append(str(e))
+            # On abort, zero out partial counters since transaction rolled back
+            result['added'] = 0
+            result['updated'] = 0
+        except Exception as e:
+            self.conn.rollback()
+            logger.error(f"bulk_add_specs failed: {e}")
+            result['errors'].append(str(e))
+            result['added'] = 0
+            result['updated'] = 0
+
+        return result
+
+    # ========================================
     # Profile Overrides
     # ========================================
 

@@ -29,7 +29,7 @@ class MainWindow:
         
         # Create main window
         self.root = ctk.CTk()
-        self.root.title("DB_Manager - QC Inspection Tool v1.3.0")
+        self.root.title("DB_Manager - QC Inspection Tool v1.4.0")
         self.root.geometry("1600x800")
         
         # Initialize variables
@@ -43,6 +43,11 @@ class MainWindow:
         self.temp_specs = {}  # Temporary specs being edited
         self.review_checklist_enabled = False  # Toggled via Profile Manager
         self.sync_mode = "offline"  # "online" or "offline"
+
+        # Profile Viewer filter state (F3)
+        self.viewer_filter = "ALL"
+        self._all_viewer_rows = []  # list of (values_tuple, tag_str)
+        self._viewer_counts = {"ALL": 0, "PASS": 0, "CHECK": 0, "FAIL": 0, "PENDING": 0}
 
         # Initialize sync manager
         self.sync_manager = SyncManager(get_cache_dir())
@@ -282,7 +287,27 @@ class MainWindow:
             font=("Segoe UI", 14, "bold"),
             anchor="w"
         ).pack(side="left")
-        
+
+        # DB tree search (F1) — input + match count
+        self._db_search_after_id = None
+        self.db_search_entry = ctk.CTkEntry(
+            tree_header_frame,
+            placeholder_text="검색: 모듈 / Part / Item…",
+            width=260,
+            height=28,
+            state="disabled"  # enabled when DB is populated
+        )
+        self.db_search_entry.pack(side="left", padx=(12, 6))
+        self.db_search_entry.bind("<KeyRelease>", self._on_db_search_key)
+        self.db_search_entry.bind("<Return>", lambda e: self._do_db_search(immediate=True))
+        self.db_search_entry.bind("<Escape>", lambda e: self._clear_db_search())
+
+        self.db_search_count_label = ctk.CTkLabel(
+            tree_header_frame, text="", font=("Segoe UI", 11),
+            text_color="gray60", width=80
+        )
+        self.db_search_count_label.pack(side="left", padx=(0, 8))
+
         # Expand/Collapse buttons
         btn_frame = ctk.CTkFrame(tree_header_frame, fg_color="transparent")
         btn_frame.pack(side="right")
@@ -362,7 +387,17 @@ class MainWindow:
             text_color="gray"
         )
         self.profile_viewer_count_label.pack(side="left", padx=10)
-        
+
+        # Result filter (F3) — All / Pass / Check / Fail
+        self.viewer_filter_segmented = ctk.CTkSegmentedButton(
+            viewer_header,
+            values=["All", "Pass", "Check", "Fail"],
+            command=self.set_viewer_filter,
+            font=("Segoe UI", 11)
+        )
+        self.viewer_filter_segmented.set("All")
+        self.viewer_filter_segmented.pack(side="left", padx=15)
+
         self.profile_viewer_label = ctk.CTkLabel(
             viewer_header,
             text="No profile selected",
@@ -573,9 +608,17 @@ class MainWindow:
         """Display DB structure in tree view"""
         if not self.db_data:
             return
-        
+
         # Populate tree with DB data and QC report (if available)
         self.db_tree.populate(self.db_data, self.qc_report)
+
+        # Enable search input now that tree has data (F1)
+        if hasattr(self, "db_search_entry"):
+            self.db_search_entry.configure(state="normal")
+            # Re-apply existing search if any (e.g., after re-load)
+            current_query = self.db_search_entry.get().strip()
+            if current_query:
+                self._do_db_search(immediate=True)
     
     def on_profile_changed(self, selected_profile):
         """Handle profile selection change"""
@@ -906,18 +949,24 @@ class MainWindow:
             self.update_status("Profiles updated")
 
     def load_profile_to_viewer(self, profile_name):
-        """Load profile to viewer"""
+        """Load profile to viewer (resets viewer filter to All)."""
         for item in self.profile_viewer_tree.get_children():
             self.profile_viewer_tree.delete(item)
-        
+
+        # Reset filter state on profile change (F3)
+        self.viewer_filter = "ALL"
+        if hasattr(self, "viewer_filter_segmented"):
+            self.viewer_filter_segmented.set("All")
+        self._all_viewer_rows = []
+        self._viewer_counts = {"ALL": 0, "PASS": 0, "CHECK": 0, "FAIL": 0, "PENDING": 0}
+
         self.profile_viewer_label.configure(text=f"Profile: {profile_name}")
         specs = self.spec_manager.load_profile_with_inheritance(profile_name)
-        
+
         if not specs:
             self.profile_viewer_count_label.configure(text="(0 items)")
             return
-        
-        item_count = 0
+
         for module, module_data in specs.items():
             for part_type, type_data in module_data.items():
                 for part_name, items in type_data.items():
@@ -925,39 +974,45 @@ class MainWindow:
                         # Skip disabled items
                         if not spec.get('enabled', True):
                             continue
-                            
-                        item_count += 1
+
                         item_name = spec.get('item_name', '')
                         val_type = spec.get('validation_type', '').upper()
-                        
+
                         if val_type == 'RANGE':
                             spec_str = f"[{spec.get('min_spec', '')}, {spec.get('max_spec', '')}]"
                         else:
                             spec_str = f"= {spec.get('expected_value', '')}"
-                        
+
                         unit = spec.get('unit', '')
-                        
+
+                        values = (module, part_type, part_name, item_name,
+                                  val_type, spec_str, unit, '-')
+                        tag = 'pending'
                         self.profile_viewer_tree.insert('', 'end',
-                            values=(module, part_type, part_name, item_name, val_type, spec_str, unit, '-'),
-                            tags=('pending',))
-        
-        self.profile_viewer_count_label.configure(text=f"({item_count} items)")
-    
+                                                        values=values, tags=(tag,))
+                        self._all_viewer_rows.append((values, tag))
+
+        self._recount_viewer()
+        self._update_viewer_count_label()
+
     def update_profile_viewer_with_results(self, qc_report):
-        """Update viewer with QC results"""
+        """Update viewer with QC results, then refresh cache + apply current filter (F3)."""
         results_map = {}
         for result in qc_report.get('results', []):
             key = (result['module'], result['part_type'], result['part_name'], result['item_name'])
             results_map[key] = result
-        
+
+        # Update each row in-place AND rebuild cache for filter
+        new_rows = []
         for item_id in self.profile_viewer_tree.get_children():
             values = list(self.profile_viewer_tree.item(item_id)['values'])
             key = (values[0], values[1], values[2], values[3])
-            
+            tag = 'pending'
+
             if key in results_map:
                 result = results_map[key]
                 status, actual = result['status'], result.get('actual_value', '-')
-                
+
                 if status == 'PASS':
                     result_text, tag = f"{actual}", 'pass'
                 elif status == 'FAIL':
@@ -966,19 +1021,133 @@ class MainWindow:
                     result_text, tag = f"{actual} ✓", 'check'
                 else:
                     result_text, tag = actual, 'pending'
-                
+
                 values[7] = result_text
                 self.profile_viewer_tree.item(item_id, values=values, tags=(tag,))
+
+            new_rows.append((tuple(values), tag))
+
+        self._all_viewer_rows = new_rows
+        self._recount_viewer()
+        self._apply_viewer_filter()
+
+    # ------------------------------------------------------------------
+    # Viewer filter (F3) helpers
+    # ------------------------------------------------------------------
+
+    def _recount_viewer(self):
+        """Recompute per-status counts from cached rows."""
+        counts = {"ALL": len(self._all_viewer_rows),
+                  "PASS": 0, "CHECK": 0, "FAIL": 0, "PENDING": 0}
+        for _, tag in self._all_viewer_rows:
+            key = tag.upper() if tag else "PENDING"
+            if key in counts:
+                counts[key] += 1
+        self._viewer_counts = counts
+
+    def _update_viewer_count_label(self):
+        """Update count label according to active filter."""
+        total = self._viewer_counts.get("ALL", 0)
+        if self.viewer_filter == "ALL":
+            self.profile_viewer_count_label.configure(
+                text=f"({total} items)", text_color="gray")
+        else:
+            shown = self._viewer_counts.get(self.viewer_filter, 0)
+            color = {
+                "PASS": "#2e7d32",
+                "CHECK": "#1976d2",
+                "FAIL": "#c62828",
+            }.get(self.viewer_filter, "gray")
+            self.profile_viewer_count_label.configure(
+                text=f"({shown} of {total} items, {self.viewer_filter})",
+                text_color=color)
+
+    def set_viewer_filter(self, value: str):
+        """Callback for SegmentedButton — apply filter."""
+        self.viewer_filter = value.upper()
+        # Guidance for QC-not-yet-run case
+        if (self.viewer_filter != "ALL"
+                and self._viewer_counts.get("PENDING", 0) == self._viewer_counts.get("ALL", 0)
+                and self._viewer_counts.get("ALL", 0) > 0):
+            self.update_status("QC를 먼저 실행하세요.")
+        self._apply_viewer_filter()
+
+    def _apply_viewer_filter(self):
+        """Re-render profile viewer rows according to active filter."""
+        # Save current selection (DB_Key) to attempt to preserve
+        sel_key = None
+        sel = self.profile_viewer_tree.selection()
+        if sel:
+            try:
+                v = self.profile_viewer_tree.item(sel[0])['values']
+                sel_key = (v[0], v[1], v[2], v[3])
+            except Exception:
+                sel_key = None
+
+        # Clear & re-insert
+        for item in self.profile_viewer_tree.get_children():
+            self.profile_viewer_tree.delete(item)
+
+        target_tag = self.viewer_filter.lower() if self.viewer_filter != "ALL" else None
+        new_sel_iid = None
+        for values, tag in self._all_viewer_rows:
+            if target_tag is not None and tag != target_tag:
+                continue
+            iid = self.profile_viewer_tree.insert('', 'end', values=values, tags=(tag,))
+            if sel_key and (values[0], values[1], values[2], values[3]) == sel_key:
+                new_sel_iid = iid
+
+        if new_sel_iid:
+            self.profile_viewer_tree.selection_set(new_sel_iid)
+            self.profile_viewer_tree.see(new_sel_iid)
+
+        self._update_viewer_count_label()
     
     def expand_all_tree(self):
         """Expand all tree items"""
         if hasattr(self.db_tree, 'expand_all'):
             self.db_tree.expand_all()
-    
+
     def collapse_all_tree(self):
         """Collapse all tree items"""
         if hasattr(self.db_tree, 'collapse_all'):
             self.db_tree.collapse_all()
+
+    # ------------------------------------------------------------------
+    # DB Tree search (F1)
+    # ------------------------------------------------------------------
+
+    def _on_db_search_key(self, event):
+        """Debounced search on KeyRelease (250ms)."""
+        # Cancel pending callback
+        if self._db_search_after_id is not None:
+            try:
+                self.root.after_cancel(self._db_search_after_id)
+            except Exception:
+                pass
+        self._db_search_after_id = self.root.after(250, self._do_db_search)
+
+    def _do_db_search(self, immediate: bool = False):
+        """Run search against DBTreeView and update count label."""
+        self._db_search_after_id = None
+        if not hasattr(self, "db_tree") or not self.db_tree.has_data():
+            return
+
+        query = self.db_search_entry.get().strip()
+        match_count = self.db_tree.search(query)
+
+        if not query:
+            self.db_search_count_label.configure(text="", text_color="gray60")
+        elif match_count == 0:
+            self.db_search_count_label.configure(text="0 matches", text_color="#ed6c02")
+        else:
+            self.db_search_count_label.configure(
+                text=f"{match_count} matches", text_color="#0d7d3d")
+
+    def _clear_db_search(self):
+        """Clear the search box and restore tree state."""
+        self.db_search_entry.delete(0, "end")
+        self._do_db_search(immediate=True)
 
     def toggle_theme(self):
         """Toggle between dark and light mode"""

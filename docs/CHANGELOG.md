@@ -7,6 +7,56 @@ DB_Compare QC 검사 도구의 모든 주요 변경사항을 기록합니다.
 
 ---
 
+## [1.4.0] - 2026-04-21
+
+### 사용성 강화 — 검색 / 임포트 / 결과 필터 🔍
+
+### 추가됨 (Added)
+
+#### F1. DB STRUCTURE 검색
+- ✅ 메인 창의 DB 트리 헤더에 **검색 입력창** 추가 (`src/ui/main_window.py`)
+- ✅ 250ms 디바운스 + 실시간 검색 (Enter 키는 즉시 실행, ESC로 클리어)
+- ✅ 매칭 시 **자동 펼침 + 하이라이트(노랑) + 첫 매치로 스크롤**
+- ✅ 검색어 클리어 시 **검색 시작 전 expand/collapse 상태 복원**
+- ✅ 매치 카운트 라벨 (`"N matches"` 녹색 / `"0 matches"` 주황)
+- ✅ DB 미로드 상태에서는 검색 입력창 자동 비활성
+
+#### F2. Admin Spec 관리 — 모듈 일괄 임포트
+- ✅ Spec 관리 탭에 **"+ 임포트" 버튼** 추가 (`src/ui/server_spec_manager.py`)
+- ✅ **3가지 소스** 지원 (한 다이얼로그에서 라디오 전환):
+  - **DB 폴더 (XML)** — `DBExtractor`로 자료구조 자동 추출
+  - **Common Base** — 현재 Common Base 전체 가져오기
+  - **다른 Equipment Profile** — 자기 자신은 자동 제외
+- ✅ 트리 + 체크박스 UI, **기존 항목 골드(#c9a33e)로 시각 구분**
+- ✅ 실시간 검색 필터 + "모두 선택/해제" 헬퍼 버튼
+- ✅ **충돌 처리 3가지 전략** (라디오):
+  - **Skip (기본)** — 기존 항목 보존, 신규만 추가
+  - **Update** — 기존 항목 Spec을 소스 값으로 덮어쓰기
+  - **Abort** — 충돌 발생 시 트랜잭션 전체 롤백
+- ✅ 신규 메서드 `ServerDBManager.bulk_add_specs(profile_id, items, conflict_strategy)` — 단일 트랜잭션, `bump_version` 1회만 호출
+- ✅ `read_only` 모드(오프라인)에서 "+ 임포트" 버튼 자동 비활성
+
+#### F3. Profile Viewer 결과 필터
+- ✅ Profile Viewer 헤더에 **Segmented Button** `[ All | Pass | Check | Fail ]` 추가
+- ✅ QC 실행 후 **Pass/Check/Fail만 분리 보기** 가능
+- ✅ 카운트 라벨 동적 갱신 (`"(12 of 156 items, FAIL)"` + 상태별 색상)
+- ✅ 프로필 변경 시 **필터 자동 All로 리셋**
+- ✅ QC 미실행 상태에서 Pass/Check/Fail 클릭 시 **상태바 안내 메시지**
+- ✅ 필터 전환 시 **선택 항목(DB_Key) 보존** (가능한 경우)
+
+### 수정됨 (Changed)
+- 🎨 앱 타이틀 `v1.3.0` → `v1.4.0`
+- 🔧 `update_profile_viewer_with_results` 끝에 캐시 빌드 + 현재 필터 자동 재적용
+
+### 근거
+- 2,600+ 항목 DB에서 수동 스크롤 비효율 → F1 검색
+- 신규 프로필 작성 시 자료구조 일관성 위험 (수기 입력 오타·구조 불일치) → F2 일괄 임포트
+- QC 결과 검토 시 Fail 항목만 빠르게 보고 싶음 → F3 분리 필터
+
+PRD §11 "장비당 QC 소요시간 ≤15분" 목표 달성에 기여, "Spec 표준화" 전략 목표(§4) 강화.
+
+---
+
 ## [1.0.0] - 2025-12-26
 
 ### 최초 릴리즈 🎉

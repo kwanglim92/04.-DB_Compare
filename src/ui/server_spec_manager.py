@@ -230,6 +230,15 @@ class ServerSpecManagerPanel(ctk.CTkFrame):
         btn_add_item.pack(side="left", padx=(0, 5))
         self._edit_buttons.append(btn_add_item)
 
+        # F2 — Bulk import from DB folder / Common Base / other Profile
+        btn_import_module = ctk.CTkButton(
+            toolbar, text="+ 임포트", width=90, height=30,
+            fg_color="#1565c0", hover_color="#0d47a1",
+            command=lambda tn=tab_name: self._open_import_dialog(tn)
+        )
+        btn_import_module.pack(side="left", padx=(0, 5))
+        self._edit_buttons.append(btn_import_module)
+
         btn_delete_item = ctk.CTkButton(
             toolbar, text="삭제", width=70, height=30,
             fg_color="#c62828", hover_color="#a01a1a",
@@ -581,6 +590,34 @@ class ServerSpecManagerPanel(ctk.CTkFrame):
                 self.on_change_callback()
             except Exception as e:
                 logger.warning(f"on_change_callback failed: {e}")
+
+    def _open_import_dialog(self, tab_name: str):
+        """Open the bulk module import dialog for the active tab (F2)."""
+        if self.read_only:
+            return
+        meta = self._tab_meta.get(tab_name)
+        if not meta:
+            return
+
+        target_profile_id = None if meta['is_common_base'] else meta['profile_id']
+
+        # Other profiles for the "from another profile" source option
+        other_profiles = [p for p in self.profiles
+                          if (meta['is_common_base'] or p['id'] != meta['profile_id'])]
+
+        dlg = ModuleImportDialog(
+            self,
+            db_manager=self.db_manager,
+            target_profile_id=target_profile_id,
+            target_tab_name=tab_name,
+            other_profiles=other_profiles,
+        )
+        self.wait_window(dlg)
+
+        if dlg.result and dlg.result.get('added', 0) + dlg.result.get('updated', 0) > 0:
+            meta['loaded'] = False
+            self._load_tab_data(tab_name)
+            self._notify_change()
 
     def _add_item(self, tab_name: str):
         """Open dialog to add a new spec item"""
@@ -1108,4 +1145,529 @@ class SpecItemDialog(ctk.CTkToplevel):
             spec['expected_value'] = self.expected_entry.get().strip() or None
 
         self.result = spec
+        self.destroy()
+
+
+# ========================================
+# Module Import Dialog (F2 — v1.4.0)
+# ========================================
+
+class ModuleImportDialog(ctk.CTkToplevel):
+    """Bulk import items from DB folder / Common Base / another Profile.
+
+    Sources:
+      - DB folder (XML) — selected via filedialog, parsed by DBExtractor
+      - Common Base — fetched via db_manager.get_all_specs()
+      - Other Equipment Profile — fetched via db_manager.get_profile_additional_checks()
+
+    On confirm, calls db_manager.bulk_add_specs() and stores the result in
+    ``self.result`` (dict with added/updated/skipped/errors).
+    """
+
+    CHECK_ON = "☑"
+    CHECK_OFF = "☐"
+    EXISTING_COLOR = "#c9a33e"  # gold for already-present items
+
+    def __init__(self, parent, db_manager, target_profile_id,
+                 target_tab_name: str, other_profiles: list):
+        super().__init__(parent)
+        self.db_manager = db_manager
+        self.target_profile_id = target_profile_id  # None = Common Base
+        self.target_tab_name = target_tab_name
+        self.other_profiles = other_profiles  # list of {id, profile_name}
+        self.result = None
+
+        # Source data and selection state
+        self._source_items = []         # list of normalized spec dicts
+        self._existing_keys = set()     # (module, part_type, part_name, item_name)
+        self._row_iid_to_index = {}     # tree iid -> index in _source_items
+        self._checked = set()           # set of indices
+
+        self.title(f"모듈 임포트 — 대상: {target_tab_name}")
+        self.geometry("1000x720")
+        self.minsize(800, 600)
+        self.transient(parent)
+        self.grab_set()
+        center_window_on_parent(self, parent, 1000, 720)
+
+        self._load_existing_keys()
+        self._build_ui()
+
+    def _load_existing_keys(self):
+        """Pre-load existing item keys for the target so we can mark duplicates."""
+        try:
+            if self.target_profile_id is None:
+                rows = self.db_manager.get_all_specs()
+            else:
+                rows = self.db_manager.get_profile_additional_checks(self.target_profile_id)
+            self._existing_keys = {
+                (r['module'], r['part_type'], r['part_name'], r['item_name'])
+                for r in rows
+            }
+        except Exception as e:
+            logger.warning(f"Failed to load existing keys: {e}")
+            self._existing_keys = set()
+
+    # ----- UI construction -----
+
+    def _build_ui(self):
+        outer = ctk.CTkFrame(self, fg_color="transparent")
+        outer.pack(fill="both", expand=True, padx=12, pady=10)
+
+        # ----- Step 1: source picker -----
+        src_frame = ctk.CTkFrame(outer)
+        src_frame.pack(fill="x", pady=(0, 8))
+
+        ctk.CTkLabel(
+            src_frame, text="1. 임포트 소스 선택",
+            font=ctk.CTkFont(size=13, weight="bold")
+        ).pack(anchor="w", padx=10, pady=(8, 4))
+
+        self.source_var = ctk.StringVar(value="db")
+        src_radio_frame = ctk.CTkFrame(src_frame, fg_color="transparent")
+        src_radio_frame.pack(fill="x", padx=10, pady=(0, 8))
+
+        ctk.CTkRadioButton(
+            src_radio_frame, text="DB 폴더 (XML)",
+            variable=self.source_var, value="db",
+            command=self._on_source_changed
+        ).pack(side="left", padx=(0, 12))
+
+        ctk.CTkRadioButton(
+            src_radio_frame, text="Common Base",
+            variable=self.source_var, value="common_base",
+            command=self._on_source_changed
+        ).pack(side="left", padx=(0, 12))
+
+        ctk.CTkRadioButton(
+            src_radio_frame, text="다른 Profile",
+            variable=self.source_var, value="profile",
+            command=self._on_source_changed
+        ).pack(side="left", padx=(0, 12))
+
+        # Source detail row (button or combobox depending on source)
+        detail_row = ctk.CTkFrame(src_frame, fg_color="transparent")
+        detail_row.pack(fill="x", padx=10, pady=(0, 8))
+
+        self.db_path_label = ctk.CTkLabel(
+            detail_row, text="(폴더 미선택)", text_color="gray60"
+        )
+        self.db_path_label.pack(side="left", padx=(0, 8))
+
+        self.choose_db_btn = ctk.CTkButton(
+            detail_row, text="DB 폴더 선택…", width=140,
+            command=self._choose_db_folder
+        )
+        self.choose_db_btn.pack(side="left", padx=(0, 8))
+
+        profile_names = [p['profile_name'] for p in self.other_profiles] or ["(없음)"]
+        self.profile_combo = ctk.CTkComboBox(
+            detail_row, values=profile_names, width=220,
+            command=lambda _: self._load_source()
+        )
+        self.profile_combo.set(profile_names[0])
+        self.profile_combo.pack(side="left", padx=(0, 8))
+        self.profile_combo.configure(state="disabled")
+
+        self.load_cb_btn = ctk.CTkButton(
+            detail_row, text="Common Base 불러오기", width=170,
+            command=self._load_source
+        )
+        self.load_cb_btn.pack(side="left", padx=(0, 8))
+        self.load_cb_btn.configure(state="disabled")
+
+        # ----- Step 2: tree with checkboxes -----
+        mid = ctk.CTkFrame(outer)
+        mid.pack(fill="both", expand=True, pady=(0, 8))
+
+        mid_header = ctk.CTkFrame(mid, fg_color="transparent")
+        mid_header.pack(fill="x", padx=10, pady=(8, 4))
+        ctk.CTkLabel(
+            mid_header, text="2. 임포트할 항목 선택 (☑ = 신규, "
+                              + "노랑 = 이미 존재)",
+            font=ctk.CTkFont(size=13, weight="bold")
+        ).pack(side="left")
+
+        # Search
+        ctk.CTkLabel(mid_header, text="  검색:").pack(side="left", padx=(20, 4))
+        self.search_entry = ctk.CTkEntry(
+            mid_header, width=200, placeholder_text="모듈/Part/Item…"
+        )
+        self.search_entry.pack(side="left")
+        self.search_entry.bind("<KeyRelease>", lambda e: self._apply_search_filter())
+
+        ctk.CTkButton(
+            mid_header, text="모두 선택", width=80,
+            command=self._select_all_visible
+        ).pack(side="right", padx=(4, 0))
+        ctk.CTkButton(
+            mid_header, text="모두 해제", width=80,
+            command=self._deselect_all
+        ).pack(side="right", padx=4)
+
+        tree_frame = ctk.CTkFrame(mid)
+        tree_frame.pack(fill="both", expand=True, padx=10, pady=(0, 8))
+
+        self.tree = ttk.Treeview(
+            tree_frame,
+            columns=('vtype', 'spec', 'unit'),
+            show='tree headings',
+            selectmode='browse'
+        )
+        self.tree.heading('#0', text='Item')
+        self.tree.heading('vtype', text='Type')
+        self.tree.heading('spec', text='Spec')
+        self.tree.heading('unit', text='Unit')
+        self.tree.column('#0', width=440, minwidth=300)
+        self.tree.column('vtype', width=70, minwidth=60, anchor='center')
+        self.tree.column('spec', width=180, minwidth=100, anchor='center')
+        self.tree.column('unit', width=80, minwidth=60, anchor='center')
+
+        vsb = ttk.Scrollbar(tree_frame, orient="vertical", command=self.tree.yview)
+        hsb = ttk.Scrollbar(tree_frame, orient="horizontal", command=self.tree.xview)
+        self.tree.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
+        self.tree.grid(row=0, column=0, sticky='nsew')
+        vsb.grid(row=0, column=1, sticky='ns')
+        hsb.grid(row=1, column=0, sticky='ew')
+        tree_frame.rowconfigure(0, weight=1)
+        tree_frame.columnconfigure(0, weight=1)
+
+        # Tree tags
+        self.tree.tag_configure('group', font=('Segoe UI', 10, 'bold'),
+                                foreground='#1f6aa5')
+        self.tree.tag_configure('existing', foreground=self.EXISTING_COLOR)
+        self.tree.tag_configure('search_hit', background='#fff59d')
+
+        # Toggle on click
+        self.tree.bind('<Button-1>', self._on_tree_click)
+
+        # ----- Step 3 (footer): conflict + summary + actions -----
+        footer = ctk.CTkFrame(outer)
+        footer.pack(fill="x", pady=(0, 0))
+
+        conflict_row = ctk.CTkFrame(footer, fg_color="transparent")
+        conflict_row.pack(fill="x", padx=10, pady=(8, 4))
+
+        ctk.CTkLabel(
+            conflict_row, text="3. 충돌 처리:",
+            font=ctk.CTkFont(size=13, weight="bold")
+        ).pack(side="left", padx=(0, 8))
+
+        self.conflict_var = ctk.StringVar(value="skip")
+        ctk.CTkRadioButton(
+            conflict_row, text="Skip (기본)", variable=self.conflict_var, value="skip"
+        ).pack(side="left", padx=(0, 8))
+        ctk.CTkRadioButton(
+            conflict_row, text="Update (덮어쓰기)",
+            variable=self.conflict_var, value="update"
+        ).pack(side="left", padx=(0, 8))
+        ctk.CTkRadioButton(
+            conflict_row, text="Abort (충돌 시 중단)",
+            variable=self.conflict_var, value="abort"
+        ).pack(side="left", padx=(0, 8))
+
+        # Summary
+        summary_row = ctk.CTkFrame(footer, fg_color="transparent")
+        summary_row.pack(fill="x", padx=10, pady=(0, 4))
+
+        self.summary_label = ctk.CTkLabel(
+            summary_row, text="선택: 신규 0개 / 기존 0개",
+            font=ctk.CTkFont(size=12), text_color="gray70"
+        )
+        self.summary_label.pack(side="left")
+
+        self.status_label = ctk.CTkLabel(
+            summary_row, text="", text_color="gray60",
+            font=ctk.CTkFont(size=11)
+        )
+        self.status_label.pack(side="right")
+
+        # Buttons
+        btn_row = ctk.CTkFrame(footer, fg_color="transparent")
+        btn_row.pack(fill="x", padx=10, pady=(0, 10))
+
+        ctk.CTkButton(
+            btn_row, text="취소", width=80, fg_color="gray40", hover_color="gray30",
+            command=self.destroy
+        ).pack(side="right", padx=(8, 0))
+
+        self.import_btn = ctk.CTkButton(
+            btn_row, text="임포트 실행", width=120,
+            fg_color="#2fa572", hover_color="#248f5f",
+            command=self._do_import
+        )
+        self.import_btn.pack(side="right")
+
+        # Initial source mode
+        self._on_source_changed()
+
+    # ----- Source selection -----
+
+    def _on_source_changed(self):
+        """Enable/disable detail widgets based on selected source."""
+        src = self.source_var.get()
+        # DB folder
+        is_db = (src == "db")
+        self.choose_db_btn.configure(state="normal" if is_db else "disabled")
+        self.db_path_label.configure(
+            text_color="gray60" if not is_db else "white"
+        )
+        # Common Base
+        self.load_cb_btn.configure(
+            state="normal" if src == "common_base" else "disabled"
+        )
+        # Other profile
+        if src == "profile" and self.other_profiles:
+            self.profile_combo.configure(state="normal")
+        else:
+            self.profile_combo.configure(state="disabled")
+
+        # Clear current source until user explicitly loads
+        self._source_items = []
+        self._checked.clear()
+        self._render_tree()
+        self._update_summary()
+
+    def _choose_db_folder(self):
+        path = filedialog.askdirectory(title="DB 폴더 선택", parent=self)
+        if not path:
+            return
+        self.db_path_label.configure(text=path[-60:] if len(path) > 60 else path)
+        self._set_status("DB 추출 중...", "gray60")
+        self.update_idletasks()
+        try:
+            from src.core.db_extractor import DBExtractor
+            extractor = DBExtractor(path)
+            hierarchy = extractor.build_hierarchy()
+            items = []
+            for module in hierarchy.get('modules', []):
+                m_name = module['name']
+                for part in module.get('parts', []):
+                    pt, pn = part['type'], part['name']
+                    for it in part.get('items', []):
+                        # Convert DB item to spec-like dict (validation_type=range default)
+                        items.append({
+                            'module': m_name,
+                            'part_type': pt,
+                            'part_name': pn,
+                            'item_name': it.get('name', ''),
+                            'validation_type': 'range',
+                            'min_spec': None,
+                            'max_spec': None,
+                            'expected_value': it.get('value'),
+                            'unit': '',
+                            'enabled': True,
+                            'description': '',
+                        })
+            self._source_items = items
+            self._checked.clear()
+            self._render_tree()
+            self._update_summary()
+            self._set_status(f"{len(items)}개 항목 추출됨", "#0d7d3d")
+        except Exception as e:
+            logger.error(f"DB extraction failed: {e}", exc_info=True)
+            messagebox.showerror("DB 추출 실패", f"유효한 DB 폴더가 아닙니다.\n{e}", parent=self)
+            self._set_status("DB 추출 실패", "red")
+
+    def _load_source(self, *_):
+        """Load Common Base or other profile data."""
+        src = self.source_var.get()
+        try:
+            if src == "common_base":
+                rows = self.db_manager.get_all_specs()
+            elif src == "profile":
+                if not self.other_profiles:
+                    self._set_status("선택 가능한 다른 프로필이 없습니다", "red")
+                    return
+                pname = self.profile_combo.get()
+                pid = next((p['id'] for p in self.other_profiles
+                            if p['profile_name'] == pname), None)
+                if pid is None:
+                    self._set_status("프로필을 선택하세요", "red")
+                    return
+                rows = self.db_manager.get_profile_additional_checks(pid)
+            else:
+                return
+
+            # Normalize to spec dicts (drop 'id' field)
+            self._source_items = [
+                {k: v for k, v in r.items() if k != 'id'} for r in rows
+            ]
+            self._checked.clear()
+            self._render_tree()
+            self._update_summary()
+            self._set_status(f"{len(rows)}개 항목 불러옴", "#0d7d3d")
+        except Exception as e:
+            logger.error(f"Source load failed: {e}", exc_info=True)
+            self._set_status(f"불러오기 실패: {e}", "red")
+
+    # ----- Tree rendering -----
+
+    def _render_tree(self, search_query: str = ""):
+        """Render the tree with current source items, optionally filtered."""
+        for iid in self.tree.get_children():
+            self.tree.delete(iid)
+        self._row_iid_to_index.clear()
+
+        if not self._source_items:
+            return
+
+        q = (search_query or "").casefold().strip()
+
+        # Group by module > part_type/part_name
+        groups = {}  # (module) -> {(pt, pn): [indices]}
+        for idx, it in enumerate(self._source_items):
+            text = (f"{it['module']}|{it['part_type']}|{it['part_name']}"
+                    f"|{it['item_name']}").casefold()
+            if q and q not in text:
+                continue
+            mod = it['module']
+            key = (it['part_type'], it['part_name'])
+            groups.setdefault(mod, {}).setdefault(key, []).append(idx)
+
+        for mod in sorted(groups.keys()):
+            mod_iid = self.tree.insert(
+                '', 'end', text=f"▼ {mod}", open=bool(q),
+                tags=('group',)
+            )
+            for (pt, pn) in sorted(groups[mod].keys()):
+                indices = groups[mod][(pt, pn)]
+                pt_iid = self.tree.insert(
+                    mod_iid, 'end',
+                    text=f"  ▼ {pt} / {pn} ({len(indices)})",
+                    open=bool(q),
+                    tags=('group',)
+                )
+                for idx in indices:
+                    it = self._source_items[idx]
+                    key = (it['module'], it['part_type'],
+                           it['part_name'], it['item_name'])
+                    is_existing = key in self._existing_keys
+                    is_checked = idx in self._checked
+                    box = self.CHECK_ON if is_checked else self.CHECK_OFF
+                    spec_str = self._fmt_spec(it)
+                    tags = ('existing',) if is_existing else ()
+                    iid = self.tree.insert(
+                        pt_iid, 'end',
+                        text=f"    {box} {it['item_name']}",
+                        values=(it.get('validation_type', '').upper(),
+                                spec_str, it.get('unit', '')),
+                        tags=tags
+                    )
+                    self._row_iid_to_index[iid] = idx
+
+    @staticmethod
+    def _fmt_spec(it: dict) -> str:
+        v = (it.get('validation_type') or '').lower()
+        if v == 'range':
+            mn, mx = it.get('min_spec'), it.get('max_spec')
+            if mn is None and mx is None:
+                return '-'
+            return f"[{'' if mn is None else mn}, {'' if mx is None else mx}]"
+        if v == 'exact':
+            return f"= {it.get('expected_value', '')}"
+        if v == 'check':
+            return '(check)'
+        return '-'
+
+    # ----- Interaction -----
+
+    def _on_tree_click(self, event):
+        """Toggle check on item-row click. Existing items stay un-toggleable."""
+        iid = self.tree.identify_row(event.y)
+        if not iid or iid not in self._row_iid_to_index:
+            return
+        idx = self._row_iid_to_index[iid]
+        it = self._source_items[idx]
+        key = (it['module'], it['part_type'], it['part_name'], it['item_name'])
+        if key in self._existing_keys:
+            # Allow toggle for Update/Abort flows — we let user explicitly include them.
+            # But default policy is Skip, so we still allow check; bulk_add_specs handles it.
+            pass
+
+        if idx in self._checked:
+            self._checked.discard(idx)
+        else:
+            self._checked.add(idx)
+
+        # Update just this row's text instead of full re-render
+        new_box = self.CHECK_ON if idx in self._checked else self.CHECK_OFF
+        self.tree.item(iid, text=f"    {new_box} {it['item_name']}")
+        self._update_summary()
+
+    def _select_all_visible(self):
+        """Check every currently-visible (item-level) row."""
+        for iid, idx in self._row_iid_to_index.items():
+            self._checked.add(idx)
+        # Re-render to update check marks (cheap enough)
+        q = self.search_entry.get() if hasattr(self, "search_entry") else ""
+        self._render_tree(q)
+        self._update_summary()
+
+    def _deselect_all(self):
+        self._checked.clear()
+        q = self.search_entry.get() if hasattr(self, "search_entry") else ""
+        self._render_tree(q)
+        self._update_summary()
+
+    def _apply_search_filter(self):
+        self._render_tree(self.search_entry.get())
+
+    def _update_summary(self):
+        new_count = 0
+        existing_count = 0
+        for idx in self._checked:
+            it = self._source_items[idx]
+            key = (it['module'], it['part_type'], it['part_name'], it['item_name'])
+            if key in self._existing_keys:
+                existing_count += 1
+            else:
+                new_count += 1
+        self.summary_label.configure(
+            text=f"선택: 신규 {new_count}개 / 기존 {existing_count}개"
+        )
+
+    def _set_status(self, text: str, color: str = "gray60"):
+        self.status_label.configure(text=text, text_color=color)
+
+    # ----- Import execution -----
+
+    def _do_import(self):
+        if not self._checked:
+            messagebox.showwarning("알림", "선택된 항목이 없습니다.", parent=self)
+            return
+
+        items = [self._source_items[idx] for idx in sorted(self._checked)]
+        strategy = self.conflict_var.get()
+
+        self.import_btn.configure(state="disabled", text="임포트 중...")
+        self._set_status("서버에 적용 중...", "gray60")
+        self.update_idletasks()
+
+        result = self.db_manager.bulk_add_specs(
+            self.target_profile_id, items, conflict_strategy=strategy
+        )
+        self.result = result
+        self.import_btn.configure(state="normal", text="임포트 실행")
+
+        # Show outcome
+        if result.get('errors'):
+            err_msg = "\n".join(result['errors'][:5])
+            messagebox.showerror(
+                "임포트 실패",
+                f"오류가 발생했습니다.\n{err_msg}\n\n"
+                f"신규: {result['added']}, 갱신: {result['updated']}, "
+                f"건너뜀: {result['skipped']}",
+                parent=self
+            )
+            return
+
+        messagebox.showinfo(
+            "임포트 완료",
+            f"성공적으로 처리되었습니다.\n"
+            f"신규 추가: {result['added']}개\n"
+            f"갱신: {result['updated']}개\n"
+            f"건너뜀: {result['skipped']}개",
+            parent=self
+        )
         self.destroy()

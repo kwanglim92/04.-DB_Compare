@@ -66,11 +66,20 @@ class DBTreeView:
         self.tree.tag_configure('skipped', foreground='#9e9e9e', font=('Segoe UI', 10))
         self.tree.tag_configure('module', foreground='#1f6aa5', font=('Segoe UI', 11, 'bold'))
         self.tree.tag_configure('part', foreground='#424242', font=('Segoe UI', 10, 'bold'))
-        
+        # Search highlight (F1) — yellow background, dark foreground
+        self.tree.tag_configure('search_hit', background='#fff59d', foreground='#5d4d00',
+                                font=('Segoe UI', 10, 'bold'))
+
         # Store data
         self.db_data = None
         self.qc_report = None
-        
+
+        # Search state (F1)
+        self._search_index = []          # list[(iid, casefold_text)]
+        self._original_tags = {}         # iid -> original tags tuple
+        self._saved_open_state = None    # dict[iid] -> bool, set during active search
+        self._highlighted_iids = set()   # iids currently carrying 'search_hit'
+
         # Bind events
         self.tree.bind('<Double-1>', self.on_double_click)
     
@@ -104,6 +113,9 @@ class DBTreeView:
         # Add modules
         for module in db_data.get('modules', []):
             self.add_module(root_id, module)
+
+        # Build search index (F1)
+        self._build_search_index()
     
     def add_module(self, parent_id: str, module: Dict):
         """Add module to tree"""
@@ -282,6 +294,111 @@ class DBTreeView:
         """Handle double-click on item"""
         # Disabled for simple view - use Profile Manager instead
         pass
+
+    # ------------------------------------------------------------------
+    # Search (F1)
+    # ------------------------------------------------------------------
+
+    def _build_search_index(self):
+        """Build a flat search index over all visible nodes."""
+        self._search_index = []
+        self._original_tags = {}
+        self._highlighted_iids = set()
+        # Reset open-state snapshot — fresh tree, fresh state
+        self._saved_open_state = None
+
+        def visit(parent_iid):
+            for iid in self.tree.get_children(parent_iid):
+                text = self.tree.item(iid, 'text') or ''
+                self._search_index.append((iid, text.casefold()))
+                self._original_tags[iid] = self.tree.item(iid, 'tags')
+                visit(iid)
+        visit('')
+
+    def has_data(self) -> bool:
+        """True if tree is populated and searchable."""
+        return bool(self._search_index)
+
+    def search(self, query: str) -> int:
+        """Search nodes by substring; expand parents, highlight, scroll to first.
+
+        Returns the number of matches. Empty query clears search and restores state.
+        """
+        query = (query or '').strip()
+
+        if not query:
+            self.clear_search()
+            return 0
+
+        # Snapshot open state on first search (so we can restore later)
+        if self._saved_open_state is None:
+            self._saved_open_state = {}
+            def snapshot(parent_iid):
+                for iid in self.tree.get_children(parent_iid):
+                    self._saved_open_state[iid] = self.tree.item(iid, 'open')
+                    snapshot(iid)
+            snapshot('')
+
+        # Clear previous highlights (without restoring open-state)
+        self._clear_highlights_only()
+
+        q = query.casefold()
+        matches = [iid for iid, text in self._search_index if q in text]
+
+        if not matches:
+            return 0
+
+        # Expand all ancestors of every match
+        parents_to_open = set()
+        for iid in matches:
+            p = self.tree.parent(iid)
+            while p:
+                parents_to_open.add(p)
+                p = self.tree.parent(p)
+        for p in parents_to_open:
+            try:
+                self.tree.item(p, open=True)
+            except Exception:
+                pass
+
+        # Apply 'search_hit' tag to matches (overrides original tag)
+        for iid in matches:
+            try:
+                self.tree.item(iid, tags=('search_hit',))
+                self._highlighted_iids.add(iid)
+            except Exception:
+                pass
+
+        # Scroll to first match + select
+        try:
+            self.tree.see(matches[0])
+            self.tree.selection_set(matches[0])
+        except Exception:
+            pass
+
+        return len(matches)
+
+    def _clear_highlights_only(self):
+        """Remove search_hit tag from highlighted nodes, restore original tags."""
+        for iid in list(self._highlighted_iids):
+            try:
+                original = self._original_tags.get(iid, ())
+                self.tree.item(iid, tags=original)
+            except Exception:
+                pass
+        self._highlighted_iids.clear()
+
+    def clear_search(self):
+        """Clear search highlights AND restore tree open-state to pre-search snapshot."""
+        self._clear_highlights_only()
+
+        if self._saved_open_state is not None:
+            for iid, was_open in self._saved_open_state.items():
+                try:
+                    self.tree.item(iid, open=was_open)
+                except Exception:
+                    pass
+            self._saved_open_state = None
 
     def expand_all(self):
         """Expand all items in the tree"""
