@@ -3,6 +3,8 @@ XML Parser Module
 Parses XML files from the DB directory structure
 """
 
+import os
+import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -11,6 +13,22 @@ import logging
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+def _open_xml(path):
+    """Open XML file using the standard OS path.
+
+    Note (v1.5.1, 2026-04-27): Earlier versions auto-prepended Windows
+    long-path prefix (``\\\\?\\``) to support deeply-nested or non-ASCII
+    paths. In practice this broke SMB mapped-drive (e.g. ``Z:\\``) and
+    UNC access on internal corporate networks — the prefix changed the
+    SMB client's permission token validation path and produced spurious
+    ``Errno 13: Permission denied`` even though Windows Explorer could
+    read the same files. Python 3.6+ handles Unicode paths natively, so
+    no prefix is needed under ``MAX_PATH``. This matches the SKILL 19
+    pattern as used by sibling projects (see Sliding Stage OPM).
+    """
+    return open(str(path), 'rb')
 
 
 class XMLParser:
@@ -38,7 +56,7 @@ class XMLParser:
             return None
         
         try:
-            with open(str(db_xml_path), 'rb') as f:
+            with _open_xml(db_xml_path) as f:
                 tree = ET.parse(f)
             root = tree.getroot()
 
@@ -75,7 +93,7 @@ class XMLParser:
             return None
         
         try:
-            with open(str(module_xml_path), 'rb') as f:
+            with _open_xml(module_xml_path) as f:
                 tree = ET.parse(f)
             root = tree.getroot()
 
@@ -121,7 +139,7 @@ class XMLParser:
             return None
         
         try:
-            with open(str(module_file_path), 'rb') as f:
+            with _open_xml(module_file_path) as f:
                 tree = ET.parse(f)
             root = tree.getroot()
 
@@ -191,7 +209,7 @@ class XMLParser:
             return None
         
         try:
-            with open(str(part_file_path), 'rb') as f:
+            with _open_xml(part_file_path) as f:
                 tree = ET.parse(f)
             root = tree.getroot()
 
