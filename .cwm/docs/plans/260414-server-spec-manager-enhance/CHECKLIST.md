@@ -37,5 +37,5 @@
 
 ## 품질 체크
 - [x] 기존 66개 테스트 회귀 통과
-- [ ] 서버 연결 CRUD 동작 확인
-- [ ] 오프라인 모드에서 기존 Profile Manager 정상 동작 확인
+- [x] 서버 연결 CRUD 동작 확인
+- [~] 오프라인 모드에서 기존 Profile Manager 정상 동작 확인 — **N/A**: Profile Manager는 v1.3.0(admin-mode-consolidation Phase 3)에서 `src/ui/_deprecated/`로 이관되어 더 이상 활성 코드가 아님
