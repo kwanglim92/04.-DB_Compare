@@ -29,7 +29,8 @@ class MainWindow:
         
         # Create main window
         self.root = ctk.CTk()
-        self.root.title("DB_Manager - QC Inspection Tool v1.4.0")
+        from src.utils.version import APP_VERSION
+        self.root.title(f"DB_Manager - QC Inspection Tool v{APP_VERSION}")
         self.root.geometry("1600x800")
         
         # Initialize variables
@@ -43,6 +44,7 @@ class MainWindow:
         self.temp_specs = {}  # Temporary specs being edited
         self.review_checklist_enabled = False  # Toggled via Profile Manager
         self.sync_mode = "offline"  # "online" or "offline"
+        self.skipped_versions = []
 
         # Profile Viewer filter state (F3)
         self.viewer_filter = "ALL"
@@ -82,6 +84,14 @@ class MainWindow:
 
         # Update status with sync info
         self._update_sync_status()
+
+        # Global key bindings (F4 search navigation)
+        self.root.bind("<F3>", self._on_search_next)
+        self.root.bind("<Shift-F3>", self._on_search_prev)
+
+        # Auto update check (online mode only, F13)
+        if self.sync_mode == "online":
+            self.root.after(2000, self._trigger_update_check)
     
     def load_settings(self):
         """Load settings from config file"""
@@ -95,6 +105,7 @@ class MainWindow:
                 if default_profile:
                     self.current_profile = default_profile
                 self.review_checklist_enabled = settings.get('review_checklist_enabled', False)
+                self.skipped_versions = settings.get('skipped_versions', [])
             except (json.JSONDecodeError, OSError) as e:
                 logger.warning(f"Failed to load settings, using defaults: {e}")
 
@@ -288,23 +299,40 @@ class MainWindow:
             anchor="w"
         ).pack(side="left")
 
-        # DB tree search (F1) — input + match count
+        # DB tree search (F1/F4) — input + prev/next + count
         self._db_search_after_id = None
         self.db_search_entry = ctk.CTkEntry(
             tree_header_frame,
             placeholder_text="검색: 모듈 / Part / Item…",
-            width=260,
+            width=220,
             height=28,
             state="disabled"  # enabled when DB is populated
         )
-        self.db_search_entry.pack(side="left", padx=(12, 6))
+        self.db_search_entry.pack(side="left", padx=(12, 4))
         self.db_search_entry.bind("<KeyRelease>", self._on_db_search_key)
-        self.db_search_entry.bind("<Return>", lambda e: self._do_db_search(immediate=True))
+        self.db_search_entry.bind("<Return>", self._on_search_next)
+        self.db_search_entry.bind("<Shift-Return>", self._on_search_prev)
         self.db_search_entry.bind("<Escape>", lambda e: self._clear_db_search())
+
+        self.db_search_prev_btn = ctk.CTkButton(
+            tree_header_frame, text="▲", width=28, height=28,
+            font=("Segoe UI", 12), state="disabled",
+            fg_color="#555555", hover_color="#333333",
+            command=self._on_search_prev_click
+        )
+        self.db_search_prev_btn.pack(side="left", padx=(0, 2))
+
+        self.db_search_next_btn = ctk.CTkButton(
+            tree_header_frame, text="▼", width=28, height=28,
+            font=("Segoe UI", 12), state="disabled",
+            fg_color="#555555", hover_color="#333333",
+            command=self._on_search_next_click
+        )
+        self.db_search_next_btn.pack(side="left", padx=(0, 4))
 
         self.db_search_count_label = ctk.CTkLabel(
             tree_header_frame, text="", font=("Segoe UI", 11),
-            text_color="gray60", width=80
+            text_color="gray60", width=60
         )
         self.db_search_count_label.pack(side="left", padx=(0, 8))
 
@@ -564,46 +592,221 @@ class MainWindow:
     def open_db(self):
         """Open DB directory"""
         try:
-            path = filedialog.askdirectory(title="Select DB Directory")
+            # Determine starting directory for dialog
+            initial = ""
+            if self.db_root:
+                initial = self.db_root
+            else:
+                settings_file = get_config_dir() / "settings.json"
+                if settings_file.exists():
+                    try:
+                        with open(settings_file, 'r', encoding='utf-8') as f:
+                            initial = json.load(f).get('db_root_path', '')
+                    except Exception:
+                        pass
+
+            path = filedialog.askdirectory(
+                title="Select DB Directory",
+                initialdir=initial if initial else None
+            )
             if path:
-                self.db_root = path
                 self.update_status(f"Loading DB from: {path}")
-                
-                # Run in thread
                 threading.Thread(target=self._load_db_thread, args=(path,), daemon=True).start()
         except Exception as e:
             messagebox.showerror("Error", f"Failed to open file dialog:\n{str(e)}")
             logger.error(f"Error in open_db: {e}", exc_info=True)
-    
+
     def _load_db_thread(self, path):
-        """Thread for loading DB"""
+        """Thread for loading DB — validates path and auto-corrects if needed."""
         try:
             from src.core.db_extractor import DBExtractor
+
+            status, _ = DBExtractor.validate_db_root(path)
+
+            if status == "no_module_dir":
+                found = DBExtractor.find_db_root_in_subtree(path, max_depth=3)
+                if found:
+                    found_str = str(found)
+                    confirmed = self._ask_auto_correct(found_str)
+                    if confirmed:
+                        path = found_str
+                    else:
+                        self.root.after(0, lambda: self.update_status("DB load cancelled"))
+                        return
+                else:
+                    msg = (
+                        "선택한 폴더가 XE Service DB 루트가 아닙니다.\n\n"
+                        "기대 구조:\n"
+                        "  <선택폴더>/Module/<ModuleName>/Part/...\n\n"
+                        "다시 선택해 주세요."
+                    )
+                    self.root.after(0, lambda: messagebox.showwarning("폴더 구조 오류", msg))
+                    self.root.after(0, lambda: self.update_status("DB load cancelled"))
+                    return
+
+            elif status == "permission_denied":
+                msg = (
+                    "폴더 접근 권한이 없습니다.\n\n"
+                    "VPN 연결, 네트워크 드라이브 매핑, 또는 폴더 권한을 확인해주세요."
+                )
+                self.root.after(0, lambda: messagebox.showwarning("권한 오류", msg))
+                self.root.after(0, lambda: self.update_status("DB load cancelled"))
+                return
+
+            elif status == "empty":
+                msg = "Module 폴더가 비어 있습니다. DB가 손상되었거나 잘못된 폴더일 수 있습니다."
+                self.root.after(0, lambda: messagebox.showwarning("빈 폴더", msg))
+                self.root.after(0, lambda: self.update_status("DB load cancelled"))
+                return
+
             extractor = DBExtractor(path)
             self.db_data = extractor.build_hierarchy()
-            
-            # Update UI in main thread
+            self._pending_db_path = path
             self.root.after(0, self._on_db_loaded)
-            
+
         except Exception as e:
             self.root.after(0, lambda: messagebox.showerror("Error", f"Failed to load DB:\n{str(e)}"))
             self.root.after(0, lambda: self.update_status("Error loading DB"))
             logger.error(f"Error loading DB: {e}", exc_info=True)
-    
+
+    def _ask_auto_correct(self, found_path: str) -> bool:
+        """Show confirmation dialog for auto-corrected DB root (must run in main thread)."""
+        import threading as _threading
+        result = [False]
+        event = _threading.Event()
+
+        def _ask():
+            answer = messagebox.askyesno(
+                "DB 경로 자동 감지",
+                f"선택하신 폴더에서 DB를 찾았습니다:\n\n  {found_path}\n\n이 경로로 진행할까요?"
+            )
+            result[0] = answer
+            event.set()
+
+        self.root.after(0, _ask)
+        event.wait(timeout=60)
+        return result[0]
+
     def _on_db_loaded(self):
         """Called when DB load finishes"""
-        self.update_status("DB Loaded. Ready for QC.")
+        # Persist the successfully loaded path
+        if hasattr(self, '_pending_db_path') and self._pending_db_path:
+            self.db_root = self._pending_db_path
+            self._save_db_root_path(self._pending_db_path)
+            self._pending_db_path = None
+
+        modules = self.db_data.get('modules', []) if self.db_data else []
+
+        if not modules:
+            self.update_status("DB 로드 실패 — 모듈 데이터 없음")
+            messagebox.showwarning(
+                "DB 로드 경고",
+                "폴더 구조는 확인됐지만 모듈 데이터를 읽지 못했습니다.\n\n"
+                "서버/네트워크 경로에서 발생하는 경우:\n"
+                "  • 파일 읽기 권한이 폴더 접근 권한과 다를 수 있습니다\n"
+                "  • 네트워크 드라이브 재연결 후 다시 시도하세요\n"
+                "  • 파일을 로컬로 복사한 후 열어보세요\n\n"
+                "자세한 오류는 로그 파일을 확인하세요."
+            )
+            return
+
         self.run_qc_btn.configure(state="normal")
         self.display_db_tree()
-        
-        # Show confirmation
+        self.update_status("DB Loaded. Ready for QC.")
+
         messagebox.showinfo(
             "DB Loaded",
             "Database loaded successfully.\n\n"
             "The DB structure is shown on the left.\n"
             "Click 'Run QC' to perform inspection."
         )
-    
+
+    def _save_db_root_path(self, path: str):
+        """Persist db_root_path to settings.json."""
+        settings_file = get_config_dir() / "settings.json"
+        try:
+            settings = {}
+            if settings_file.exists():
+                with open(settings_file, 'r', encoding='utf-8') as f:
+                    settings = json.load(f)
+            settings['db_root_path'] = path
+            with open(settings_file, 'w', encoding='utf-8') as f:
+                json.dump(settings, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            logger.warning(f"Failed to save db_root_path: {e}")
+
+    # ------------------------------------------------------------------
+    # Auto update check (F13)
+    # ------------------------------------------------------------------
+
+    def _trigger_update_check(self):
+        """Start background update check (online mode only)."""
+        try:
+            from src.core.update_checker import UpdateChecker
+            from src.utils.credential_manager import CredentialManager
+            creds = self.credential_manager.load_credentials()
+            if not creds:
+                return
+            server_config = {
+                'host': creds.get('host', ''),
+                'port': creds.get('port', 5432),
+                'dbname': creds.get('dbname', ''),
+                'user': creds.get('user', ''),
+                'password': creds.get('password', ''),
+            }
+            checker = UpdateChecker(server_config)
+            checker.check_async(lambda info: self.root.after(0, lambda: self._on_update_result(info)))
+        except Exception as e:
+            logger.debug(f"Update check trigger failed: {e}")
+
+    def _on_update_result(self, release_info):
+        """Handle result from UpdateChecker.check_async()."""
+        if not release_info:
+            return
+        from src.utils.version import APP_VERSION, is_newer, parse_version
+        latest = release_info.get('version', '')
+        if not latest or not is_newer(latest, APP_VERSION):
+            return
+        # Check skipped versions
+        if latest in self.skipped_versions:
+            # Still show if current is below min_compatible_version
+            min_compat = release_info.get('min_compatible_version', '')
+            if not min_compat or not is_newer(min_compat, APP_VERSION):
+                return
+        self._show_update_dialog(release_info)
+
+    def _show_update_dialog(self, release_info: dict):
+        """Show UpdateAvailableDialog and handle user choice."""
+        from src.ui.update_dialog import UpdateAvailableDialog
+        from src.utils.version import APP_VERSION
+        dialog = UpdateAvailableDialog(self.root, APP_VERSION, release_info)
+        if dialog.result == "skip":
+            latest = release_info.get('version', '')
+            if latest and latest not in self.skipped_versions:
+                self.skipped_versions.append(latest)
+                self._save_skipped_versions()
+
+    def _save_skipped_versions(self):
+        """Persist skipped_versions list to settings.json."""
+        settings_file = get_config_dir() / "settings.json"
+        try:
+            settings = {}
+            if settings_file.exists():
+                with open(settings_file, 'r', encoding='utf-8') as f:
+                    settings = json.load(f)
+            settings['skipped_versions'] = self.skipped_versions
+            with open(settings_file, 'w', encoding='utf-8') as f:
+                json.dump(settings, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            logger.warning(f"Failed to save skipped_versions: {e}")
+
+    def check_update_now(self):
+        """Manual update check trigger (called from Admin window)."""
+        if self.sync_mode != "online":
+            messagebox.showinfo("오프라인 모드", "온라인 모드에서만 업데이트 확인이 가능합니다.")
+            return
+        self._trigger_update_check()
+
     def display_db_tree(self):
         """Display DB structure in tree view"""
         if not self.db_data:
@@ -925,6 +1128,7 @@ class MainWindow:
             sync_mode=self.sync_mode,
             on_settings_saved=self._on_server_settings_saved,
             on_spec_changed=self._on_admin_spec_changed,
+            on_check_update=self.check_update_now,
         )
         self.root.wait_window(admin)
 
@@ -1114,12 +1318,11 @@ class MainWindow:
             self.db_tree.collapse_all()
 
     # ------------------------------------------------------------------
-    # DB Tree search (F1)
+    # DB Tree search (F1) + Prev/Next navigation (F4)
     # ------------------------------------------------------------------
 
     def _on_db_search_key(self, event):
         """Debounced search on KeyRelease (250ms)."""
-        # Cancel pending callback
         if self._db_search_after_id is not None:
             try:
                 self.root.after_cancel(self._db_search_after_id)
@@ -1128,7 +1331,7 @@ class MainWindow:
         self._db_search_after_id = self.root.after(250, self._do_db_search)
 
     def _do_db_search(self, immediate: bool = False):
-        """Run search against DBTreeView and update count label."""
+        """Run search against DBTreeView and update count label + nav buttons."""
         self._db_search_after_id = None
         if not hasattr(self, "db_tree") or not self.db_tree.has_data():
             return
@@ -1138,11 +1341,58 @@ class MainWindow:
 
         if not query:
             self.db_search_count_label.configure(text="", text_color="gray60")
+            self._set_nav_buttons(False)
         elif match_count == 0:
-            self.db_search_count_label.configure(text="0 matches", text_color="#ed6c02")
+            self.db_search_count_label.configure(text="0 / 0", text_color="#ed6c02")
+            self._set_nav_buttons(False)
         else:
-            self.db_search_count_label.configure(
-                text=f"{match_count} matches", text_color="#0d7d3d")
+            self.db_search_count_label.configure(text=f"1 / {match_count}", text_color="#0d7d3d")
+            self._set_nav_buttons(match_count >= 2)
+
+    def _set_nav_buttons(self, enabled: bool):
+        """Enable or disable ▲/▼ navigation buttons."""
+        state = "normal" if enabled else "disabled"
+        self.db_search_prev_btn.configure(state=state)
+        self.db_search_next_btn.configure(state=state)
+
+    def _update_nav_label(self, current: int, total: int):
+        """Update the N / M count label after navigation."""
+        color = "#0d7d3d" if total > 0 else "#ed6c02"
+        self.db_search_count_label.configure(
+            text=f"{current} / {total}", text_color=color
+        )
+
+    def _on_search_next(self, event=None):
+        """Move to next match (Enter key in search box or F3)."""
+        if not hasattr(self, "db_tree") or not self.db_tree.has_data():
+            return "break"
+        query = self.db_search_entry.get().strip()
+        if not query:
+            return "break"
+        current, total = self.db_tree.next_match()
+        if total > 0:
+            self._update_nav_label(current, total)
+        return "break"
+
+    def _on_search_prev(self, event=None):
+        """Move to previous match (Shift+Enter or Shift+F3)."""
+        if not hasattr(self, "db_tree") or not self.db_tree.has_data():
+            return "break"
+        query = self.db_search_entry.get().strip()
+        if not query:
+            return "break"
+        current, total = self.db_tree.prev_match()
+        if total > 0:
+            self._update_nav_label(current, total)
+        return "break"
+
+    def _on_search_next_click(self):
+        """▼ button click handler."""
+        self._on_search_next()
+
+    def _on_search_prev_click(self):
+        """▲ button click handler."""
+        self._on_search_prev()
 
     def _clear_db_search(self):
         """Clear the search box and restore tree state."""

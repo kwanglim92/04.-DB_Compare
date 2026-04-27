@@ -3,73 +3,158 @@ Excel Report Generator
 Generates professional QC inspection reports in Excel format
 """
 
+from datetime import datetime
+from pathlib import Path
+from typing import Dict, Optional
+import logging
+
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.chart import BarChart, PieChart, Reference
 from openpyxl.utils import get_column_letter
-from datetime import datetime
-from typing import Dict
-import logging
 
 from src.constants import EXCEL_COLORS
 from src.utils.format_helpers import format_spec
+from src.utils.template_helper import (
+    get_default_template, load_template, validate_template, apply_placeholders
+)
 
 logger = logging.getLogger(__name__)
 
 
 class ExcelReportGenerator:
-    """
-    Generate Excel reports from QC inspection results
-    """
-    
-    def __init__(self):
+    """Generate Excel reports from QC inspection results."""
+
+    def __init__(self, template: Optional[Dict] = None):
         self.logger = logger
-        
-        # Use EXCEL_COLORS from constants
         self.colors = EXCEL_COLORS
-    
+
+        if template is None:
+            self._template = get_default_template()
+        else:
+            self._template = validate_template(template)
+
+    @classmethod
+    def from_template_file(cls, template_path: Path) -> "ExcelReportGenerator":
+        """Convenience constructor that loads template from a JSON file."""
+        tmpl = load_template(template_path)
+        return cls(template=tmpl)
+
+    # ------------------------------------------------------------------
+    # Header color helper
+    # ------------------------------------------------------------------
+
+    def _header_fill(self) -> PatternFill:
+        color = self._template.get("header_color", "#1f6aa5").lstrip("#")
+        return PatternFill(start_color=color, fill_type="solid")
+
+    def _footer_text(self) -> str:
+        return self._template.get("footer_text", "")
+
+    def _report_title(self, qc_report: Dict) -> str:
+        title_tpl = self._template.get("title_template", "QC Inspection Report — {profile} — {date}")
+        ctx = {
+            "profile": qc_report.get("profile_name", ""),
+            "date": datetime.now().strftime("%Y-%m-%d"),
+            "engineer": self._template.get("engineer_name", ""),
+            "instrument": qc_report.get("instrument", ""),
+        }
+        return apply_placeholders(title_tpl, ctx)
+
+    # ------------------------------------------------------------------
+    # Public entry point
+    # ------------------------------------------------------------------
+
     def generate_report(self, qc_report: Dict, output_path: str) -> bool:
-        """
-        Generate complete Excel report
-        
+        """Generate complete Excel report.
+
         Args:
             qc_report: QC report from Comparator
             output_path: Path to save Excel file
-            
-        Returns:
-            True if successful
-            
-        Raises:
-            Exception: If report generation fails
         """
         wb = Workbook()
-        
-        # Remove default sheet
         if 'Sheet' in wb.sheetnames:
             wb.remove(wb['Sheet'])
-        
-        # Create sheets
-        self.create_summary_sheet(wb, qc_report)
-        self.create_all_items_sheet(wb, qc_report)
-        self.create_failed_items_sheet(wb, qc_report)
-        
-        # Save workbook
+
+        sheets = self._template.get("sheets", {})
+
+        if sheets.get("cover_page", False):
+            self.create_cover_sheet(wb, qc_report)
+        if sheets.get("summary", True):
+            self.create_summary_sheet(wb, qc_report)
+        if sheets.get("all_items", True):
+            self.create_all_items_sheet(wb, qc_report)
+        if sheets.get("failed_items", True):
+            self.create_failed_items_sheet(wb, qc_report)
+
+        # Safety: if nothing was created, add Summary
+        if not wb.sheetnames:
+            self.create_summary_sheet(wb, qc_report)
+
         wb.save(output_path)
         self.logger.info(f"Report saved to: {output_path}")
         return True
 
     
+    def create_cover_sheet(self, wb: Workbook, report: Dict):
+        """Create a cover page sheet with company info and inspection details."""
+        ws = wb.create_sheet("Cover", 0)
+        ws.column_dimensions['A'].width = 28
+        ws.column_dimensions['B'].width = 40
+
+        company = self._template.get("company", {})
+        logo_path = company.get("logo_path", "")
+
+        # Logo
+        if logo_path:
+            try:
+                from openpyxl.drawing.image import Image as XlImage
+                img = XlImage(logo_path)
+                img.width = min(img.width, 200)
+                img.height = min(img.height, 80)
+                ws.add_image(img, "A1")
+                ws.row_dimensions[1].height = 60
+            except Exception as e:
+                self.logger.warning(f"Cannot insert logo: {e}")
+
+        row = 4
+        ws[f'A{row}'] = self._report_title(report)
+        ws[f'A{row}'].font = Font(size=16, bold=True)
+        ws.merge_cells(f'A{row}:B{row}')
+        row += 2
+
+        info = [
+            ("Company", company.get("name", "")),
+            ("Engineer", self._template.get("engineer_name", "")),
+            ("Instrument", report.get("instrument", "")),
+            ("Profile", report.get("profile_name", "")),
+            ("Date", datetime.now().strftime("%Y-%m-%d %H:%M")),
+            ("Contact", company.get("contact", "")),
+        ]
+        for label, value in info:
+            ws[f'A{row}'] = label
+            ws[f'A{row}'].font = Font(bold=True)
+            ws[f'B{row}'] = value
+            row += 1
+
+        footer = self._footer_text()
+        if footer:
+            row += 2
+            ws[f'A{row}'] = footer
+            ws[f'A{row}'].font = Font(italic=True, color="808080")
+            ws.merge_cells(f'A{row}:B{row}')
+
     def create_summary_sheet(self, wb: Workbook, report: Dict):
         """Create summary sheet with statistics"""
-        ws = wb.create_sheet("Summary", 0)
-        
+        ws = wb.create_sheet("Summary")
+
         # Set column widths
         ws.column_dimensions['A'].width = 20
         ws.column_dimensions['B'].width = 30
-        
-        # Title
-        ws['A1'] = "QC Inspection Report"
-        ws['A1'].font = Font(size=18, bold=True)
+
+        # Title from template
+        ws['A1'] = self._report_title(report)
+        ws['A1'].font = Font(size=16, bold=True)
         ws.merge_cells('A1:B1')
         
         # Metadata
@@ -143,7 +228,7 @@ class ExcelReportGenerator:
         for col, header in enumerate(headers, start=1):
             cell = ws.cell(row=1, column=col, value=header)
             cell.font = Font(bold=True, color="FFFFFF")
-            cell.fill = PatternFill(start_color=self.colors['header_bg'], fill_type="solid")
+            cell.fill = self._header_fill()
             cell.alignment = Alignment(horizontal='center', vertical='center')
         
         # Data
@@ -200,7 +285,7 @@ class ExcelReportGenerator:
         for col, header in enumerate(headers, start=1):
             cell = ws.cell(row=1, column=col, value=header)
             cell.font = Font(bold=True, color="FFFFFF")
-            cell.fill = PatternFill(start_color=self.colors['header_bg'], fill_type="solid")
+            cell.fill = self._header_fill()
             cell.alignment = Alignment(horizontal='center', vertical='center')
         
         # Filter failed items

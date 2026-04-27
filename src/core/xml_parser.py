@@ -38,9 +38,10 @@ class XMLParser:
             return None
         
         try:
-            tree = ET.parse(db_xml_path)
+            with open(str(db_xml_path), 'rb') as f:
+                tree = ET.parse(f)
             root = tree.getroot()
-            
+
             # Find SelectedInstrument element
             selected_instrument = root.find('.//SelectedInstrument')
             if selected_instrument is not None and selected_instrument.text:
@@ -49,12 +50,12 @@ class XMLParser:
             else:
                 self.logger.warning("SelectedInstrument not found in DB.xml")
                 return None
-                
+
+        except (PermissionError, OSError) as e:
+            self.logger.error(f"Cannot read DB.xml (network/permission error): {db_xml_path} — {e}")
+            return None
         except ET.ParseError as e:
             self.logger.error(f"Failed to parse DB.xml: {e}")
-            return None
-        except Exception as e:
-            self.logger.error(f"Error reading DB.xml: {e}")
             return None
     
     def parse_module_selection(self, module_path: str) -> Optional[str]:
@@ -74,9 +75,10 @@ class XMLParser:
             return None
         
         try:
-            tree = ET.parse(module_xml_path)
+            with open(str(module_xml_path), 'rb') as f:
+                tree = ET.parse(f)
             root = tree.getroot()
-            
+
             # Find SelectedModule element
             selected_module = root.find('.//SelectedModule')
             if selected_module is not None and selected_module.text:
@@ -85,12 +87,12 @@ class XMLParser:
             else:
                 self.logger.warning(f"SelectedModule not found in {module_xml_path}")
                 return None
-                
+
+        except (PermissionError, OSError) as e:
+            self.logger.error(f"Cannot read Module.xml (network/permission error): {module_xml_path} — {e}")
+            return None
         except ET.ParseError as e:
             self.logger.error(f"Failed to parse Module.xml: {e}")
-            return None
-        except Exception as e:
-            self.logger.error(f"Error reading Module.xml: {e}")
             return None
     
     def parse_module_config(self, module_file: str) -> Optional[Dict]:
@@ -119,46 +121,47 @@ class XMLParser:
             return None
         
         try:
-            tree = ET.parse(module_file_path)
+            with open(str(module_file_path), 'rb') as f:
+                tree = ET.parse(f)
             root = tree.getroot()
-            
+
             config = {
                 'name': None,
                 'description': None,
                 'parts': []
             }
-            
+
             # Get module name
             name_elem = root.find('.//Name')
             if name_elem is not None and name_elem.text:
                 config['name'] = name_elem.text.strip()
-            
+
             # Get description
             desc_elem = root.find('.//Description')
             if desc_elem is not None and desc_elem.text:
                 config['description'] = desc_elem.text.strip()
-            
+
             # Get PartList
             part_list = root.find('.//PartList')
             if part_list is not None:
                 for part in part_list.findall('Part'):
                     part_type = part.find('Type')
                     part_name = part.find('Name')
-                    
+
                     if part_type is not None and part_name is not None:
                         config['parts'].append({
                             'type': part_type.text.strip() if part_type.text else '',
                             'name': part_name.text.strip() if part_name.text else ''
                         })
-            
+
             self.logger.info(f"Parsed module config: {config['name']} with {len(config['parts'])} parts")
             return config
-            
+
+        except (PermissionError, OSError) as e:
+            self.logger.error(f"Cannot read module config (network/permission error): {module_file_path} — {e}")
+            return None
         except ET.ParseError as e:
             self.logger.error(f"Failed to parse module config: {e}")
-            return None
-        except Exception as e:
-            self.logger.error(f"Error reading module config: {e}")
             return None
     
     def parse_part_items(self, part_file: str) -> Optional[List[Dict]]:
@@ -188,48 +191,49 @@ class XMLParser:
             return None
         
         try:
-            tree = ET.parse(part_file_path)
+            with open(str(part_file_path), 'rb') as f:
+                tree = ET.parse(f)
             root = tree.getroot()
-            
+
             items = []
-            
+
             # Find ItemList
             item_list = root.find('.//ItemList')
             if item_list is not None:
                 for item in item_list.findall('Item'):
                     item_data = {}
-                    
+
                     # Extract item fields
                     name_elem = item.find('Name')
                     if name_elem is not None and name_elem.text:
                         item_data['name'] = name_elem.text.strip()
-                    
+
                     desc_elem = item.find('Description')
                     if desc_elem is not None:
                         item_data['description'] = desc_elem.text.strip() if desc_elem.text else ''
-                    
+
                     value_type_elem = item.find('ValueType')
                     if value_type_elem is not None and value_type_elem.text:
                         item_data['value_type'] = value_type_elem.text.strip()
-                    
+
                     value_elem = item.find('Value')
                     if value_elem is not None:
                         item_data['value'] = value_elem.text.strip() if value_elem.text else ''
-                    
+
                     access_elem = item.find('Access')
                     if access_elem is not None and access_elem.text:
                         item_data['access'] = access_elem.text.strip()
-                    
+
                     # Only add if we have at least a name
                     if 'name' in item_data:
                         items.append(item_data)
-            
+
             self.logger.info(f"Parsed {len(items)} items from {part_file_path.name}")
             return items
-            
+
+        except (PermissionError, OSError) as e:
+            self.logger.error(f"Cannot read part file (network/permission error): {part_file_path} — {e}")
+            return None
         except ET.ParseError as e:
             self.logger.error(f"Failed to parse part file: {e}")
-            return None
-        except Exception as e:
-            self.logger.error(f"Error reading part file: {e}")
             return None

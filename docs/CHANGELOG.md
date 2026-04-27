@@ -7,6 +7,74 @@ DB_Compare QC 검사 도구의 모든 주요 변경사항을 기록합니다.
 
 ---
 
+## [1.5.0] - 2026-04-27
+
+### 검색 네비/서버폴더 보강/자동업데이트/리포트 템플릿 ⚡
+
+### 추가됨 (Added)
+
+#### F4. DB 검색 매치 Prev/Next 네비게이션
+- ✅ 검색 헤더에 **▲ / ▼ 버튼** 추가 (`src/ui/main_window.py`)
+- ✅ 카운트 라벨 형식 `"3 / 12"` (현재/총)
+- ✅ **`search_active`** 태그(주황 #ff9800) — 활성 매치 강조
+- ✅ `DBTreeView.next_match()` / `prev_match()` — wraparound 지원
+- ✅ 키보드 단축키:
+  - `Enter` (검색창) = 다음 매치
+  - `Shift+Enter` = 이전 매치
+  - `F3` (전역) = 다음 매치
+  - `Shift+F3` (전역) = 이전 매치
+
+#### F5. Open DB 서버 폴더 접근 보강 (사내 네트워크 드라이브 지원)
+- ✅ **F5-1 마지막 경로에서 다이얼로그 열기** — `askdirectory(initialdir=last_db_path)` 우선순위 적용 (현재 세션 → settings.json)
+- ✅ **F5-2 권한 에러 graceful skip** — `DBExtractor.iterdir()` 호출에 `try/except (PermissionError, OSError)` 적용. 권한 없는 모듈만 누락되고 앱은 정상 동작
+- ✅ **F5-3 잘못 선택 시 명확한 안내** — `DBExtractor.validate_db_root()` 신규 (4가지 상태: valid / no_module_dir / permission_denied / empty) + 상태별 한글 안내 다이얼로그
+- ✅ **F5-4 깊이 제한 재귀 자동 정정** — `DBExtractor.find_db_root_in_subtree(max_depth=3)` 신규. 한 단계 위 폴더 선택 시 자동 탐색 → "검색된 DB 루트: {path} — 이 폴더로 진행할까요?" 확인 다이얼로그
+- ✅ 로드 성공 시 `db_root_path` 자동 저장 (settings.json)
+
+#### F13. 자동 업데이트 체크 (PostgreSQL 기반)
+- ✅ 신규 DB 스키마 [`dbmanager-server/init/02_app_releases.sql`](dbmanager-server/init/02_app_releases.sql) — `app_releases` 테이블 (version / download_url / release_notes / is_critical / min_compatible_version)
+- ✅ `src/utils/version.py` — `APP_VERSION="1.5.0"` 단일 진실 공급원 + `parse_version()` / `is_newer()`
+- ✅ `src/core/update_checker.py` — `UpdateChecker.check_async()` 비동기 체크 (5초 타임아웃, silent fail)
+- ✅ `src/ui/update_dialog.py` — `UpdateAvailableDialog` (일반/강제 모드)
+  - 일반: `[다운로드 페이지 열기] [나중에] [이 버전 무시]`
+  - 강제(`is_critical` 또는 `current < min_compatible_version`): "나중에"/"무시" 비활성
+- ✅ 앱 시작 2초 후 비동기 체크 (온라인 모드만)
+- ✅ `settings.json.skipped_versions` — "이 버전 무시" 누적 저장
+- ✅ Admin → 서버 설정 탭 하단에 **"지금 확인" 버튼**
+- ✅ 다운로드 링크: UNC/HTTP 모두 지원 (`os.startfile()`) — 자동 EXE 교체 X (보안 정책 안전)
+
+#### F14. Excel 리포트 템플릿 커스터마이징
+- ✅ `config/report_template.json` — 템플릿 저장소 (회사/타이틀/색상/시트구성/Cover Page)
+- ✅ `src/utils/template_helper.py` — load/save/validate/apply_placeholders
+- ✅ `src/ui/report_template_panel.py` — Admin 창 신규 탭 "리포트 템플릿"
+  - 회사 정보 (Name / Logo / Contact)
+  - 타이틀 템플릿 (`{profile}`, `{date}`, `{engineer}`, `{instrument}` placeholder)
+  - 헤더 색상 / Footer 텍스트
+  - 시트 구성 체크박스 (Summary / All Items / Failed Items / Cover Page)
+  - **[기본값으로 초기화]** / **[미리보기 Excel 생성]** / **[저장]**
+- ✅ `src/utils/report_generator.py` — 템플릿 기반 동작 (회사 로고, 색상, 시트 conditional 생성)
+
+### 수정됨 (Changed)
+- 🎨 앱 타이틀 `v1.4.0` → `v1.5.0` (`version.py` 단일 소스에서 import)
+- 🔧 Admin 창에 새 탭 "리포트 템플릿" 추가 (총 3개 탭: 서버 설정 / Spec 관리 / 리포트 템플릿)
+
+### 보안 (Security)
+- 🔒 자동 업데이트는 EXE 자동 교체 X — 다운로드 링크만 제공 (사용자 수동 실행)
+- 🔒 강제 업데이트(is_critical) 모드 — 보안 패치 시 "나중에" 비활성화로 강제 수신
+
+### 검증
+- ✅ 99/99 테스트 통과 (66개 회귀 + 33개 신규)
+- ✅ `python -m py_compile` 전체 성공
+- ✅ 신규 테스트: `test_version`, `test_db_extractor_v15`, `test_update_checker`, `test_template_helper`
+
+### 근거
+- F4: 12+ 매치 시 수동 스크롤 비효율 → Prev/Next 네비
+- F5: 사내 네트워크 드라이브 접근 시 갭 4가지 보강 (SKILL 19 패턴 준수)
+- F13: PRD §8.3 R17 (자동 업데이트) → P1 승격
+- F14: 외부 보고용 Excel 커스터마이징 요구 충족
+
+---
+
 ## [1.4.0] - 2026-04-21
 
 ### 사용성 강화 — 검색 / 임포트 / 결과 필터 🔍

@@ -20,6 +20,7 @@ from typing import Callable, Optional
 from src.core.sync_manager import SyncManager
 from src.ui.server_settings_dialog import ServerSettingsPanel
 from src.ui.server_spec_manager import ServerSpecManagerPanel
+from src.ui.report_template_panel import ReportTemplatePanel
 
 logger = logging.getLogger(__name__)
 
@@ -34,12 +35,14 @@ class AdminWindow(ctk.CTkToplevel):
         sync_mode: str = "offline",
         on_settings_saved: Optional[Callable[[str], None]] = None,
         on_spec_changed: Optional[Callable[[], None]] = None,
+        on_check_update: Optional[Callable[[], None]] = None,
     ):
         super().__init__(parent)
         self.sync_manager = sync_manager
         self._sync_mode = sync_mode
         self._on_settings_saved = on_settings_saved
         self._on_spec_changed = on_spec_changed
+        self._on_check_update = on_check_update
 
         self.title("관리자 모드 — DB_Manager")
         self.geometry("1320x760")
@@ -91,6 +94,7 @@ class AdminWindow(ctk.CTkToplevel):
 
         tab_settings = self.tabview.add("서버 설정")
         tab_specs = self.tabview.add("Spec 관리")
+        tab_template = self.tabview.add("리포트 템플릿")
 
         # --- Tab 1: Server Settings ---
         self.settings_panel = ServerSettingsPanel(
@@ -100,6 +104,17 @@ class AdminWindow(ctk.CTkToplevel):
         )
         self.settings_panel.pack(fill="both", expand=True, padx=5, pady=5)
 
+        # Update check button (F13)
+        update_row = ctk.CTkFrame(tab_settings, fg_color="transparent")
+        update_row.pack(fill="x", padx=5, pady=(0, 8))
+        ctk.CTkLabel(update_row, text="앱 업데이트:", font=("Segoe UI", 12)).pack(side="left", padx=(4, 8))
+        ctk.CTkButton(
+            update_row, text="지금 확인", width=100, height=28,
+            font=("Segoe UI", 12),
+            fg_color="#1f6aa5", hover_color="#17538a",
+            command=self._handle_check_update
+        ).pack(side="left")
+
         # --- Tab 2: Spec Manager ---
         # In offline mode the panel renders a graceful fallback + read-only guard
         self.specs_panel = ServerSpecManagerPanel(
@@ -108,6 +123,10 @@ class AdminWindow(ctk.CTkToplevel):
             read_only=(self._sync_mode != "online"),
         )
         self.specs_panel.pack(fill="both", expand=True, padx=5, pady=5)
+
+        # --- Tab 3: Report Template ---
+        self.template_panel = ReportTemplatePanel(tab_template)
+        self.template_panel.pack(fill="both", expand=True, padx=5, pady=5)
 
         # Start on settings tab when offline (prompt user to go online first)
         if self._sync_mode != "online":
@@ -136,6 +155,14 @@ class AdminWindow(ctk.CTkToplevel):
                 self._on_settings_saved(new_mode)
             except Exception as e:
                 logger.warning(f"on_settings_saved callback failed: {e}")
+
+    def _handle_check_update(self):
+        """Trigger manual update check via MainWindow callback."""
+        if self._on_check_update:
+            try:
+                self._on_check_update()
+            except Exception as e:
+                logger.warning(f"on_check_update callback failed: {e}")
 
     def _handle_spec_changed(self):
         """Propagate spec-change notification to parent (MainWindow)."""

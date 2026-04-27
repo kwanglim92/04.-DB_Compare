@@ -69,6 +69,9 @@ class DBTreeView:
         # Search highlight (F1) — yellow background, dark foreground
         self.tree.tag_configure('search_hit', background='#fff59d', foreground='#5d4d00',
                                 font=('Segoe UI', 10, 'bold'))
+        # Active match highlight (F4) — orange background
+        self.tree.tag_configure('search_active', background='#ff9800', foreground='#000000',
+                                font=('Segoe UI', 10, 'bold'))
 
         # Store data
         self.db_data = None
@@ -79,6 +82,10 @@ class DBTreeView:
         self._original_tags = {}         # iid -> original tags tuple
         self._saved_open_state = None    # dict[iid] -> bool, set during active search
         self._highlighted_iids = set()   # iids currently carrying 'search_hit'
+
+        # Navigation state (F4)
+        self._search_matches = []        # ordered list of matching iids
+        self._current_match_idx = -1     # index of active match (-1 = none)
 
         # Bind events
         self.tree.bind('<Double-1>', self.on_double_click)
@@ -304,6 +311,8 @@ class DBTreeView:
         self._search_index = []
         self._original_tags = {}
         self._highlighted_iids = set()
+        self._search_matches = []
+        self._current_match_idx = -1
         # Reset open-state snapshot — fresh tree, fresh state
         self._saved_open_state = None
 
@@ -361,7 +370,7 @@ class DBTreeView:
             except Exception:
                 pass
 
-        # Apply 'search_hit' tag to matches (overrides original tag)
+        # Apply 'search_hit' tag to all matches
         for iid in matches:
             try:
                 self.tree.item(iid, tags=('search_hit',))
@@ -369,14 +378,53 @@ class DBTreeView:
             except Exception:
                 pass
 
-        # Scroll to first match + select
+        # Store match list and activate first match
+        self._search_matches = matches
+        self._current_match_idx = 0
+        self._goto_match(0)
+
+        return len(matches)
+
+    def _goto_match(self, idx: int):
+        """Scroll to and highlight the match at idx as the active match."""
+        if not self._search_matches:
+            return
+        idx = idx % len(self._search_matches)
+        self._current_match_idx = idx
+
+        # Remove search_active from previously active match
+        for iid in list(self._highlighted_iids):
+            try:
+                current_tags = self.tree.item(iid, 'tags')
+                if 'search_active' in current_tags:
+                    self.tree.item(iid, tags=('search_hit',))
+            except Exception:
+                pass
+
+        # Apply search_active to current match
+        active_iid = self._search_matches[idx]
         try:
-            self.tree.see(matches[0])
-            self.tree.selection_set(matches[0])
+            self.tree.item(active_iid, tags=('search_active',))
+            self.tree.see(active_iid)
+            self.tree.selection_set(active_iid)
         except Exception:
             pass
 
-        return len(matches)
+    def next_match(self) -> tuple:
+        """Move to next match (wraparound). Returns (current_1based, total)."""
+        if not self._search_matches:
+            return (0, 0)
+        new_idx = (self._current_match_idx + 1) % len(self._search_matches)
+        self._goto_match(new_idx)
+        return (new_idx + 1, len(self._search_matches))
+
+    def prev_match(self) -> tuple:
+        """Move to previous match (wraparound). Returns (current_1based, total)."""
+        if not self._search_matches:
+            return (0, 0)
+        new_idx = (self._current_match_idx - 1) % len(self._search_matches)
+        self._goto_match(new_idx)
+        return (new_idx + 1, len(self._search_matches))
 
     def _clear_highlights_only(self):
         """Remove search_hit tag from highlighted nodes, restore original tags."""
@@ -391,6 +439,8 @@ class DBTreeView:
     def clear_search(self):
         """Clear search highlights AND restore tree open-state to pre-search snapshot."""
         self._clear_highlights_only()
+        self._search_matches = []
+        self._current_match_idx = -1
 
         if self._saved_open_state is not None:
             for iid, was_open in self._saved_open_state.items():

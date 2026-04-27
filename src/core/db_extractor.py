@@ -4,7 +4,8 @@ Traverses the DB directory structure and extracts all data
 """
 
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
+from collections import deque
 import logging
 from .xml_parser import XMLParser
 
@@ -27,8 +28,11 @@ class DBExtractor:
         self.parser = XMLParser()
         self.logger = logger
         
-        if not self.db_root.exists():
-            raise FileNotFoundError(f"DB root not found: {db_root}")
+        try:
+            if not self.db_root.exists():
+                raise FileNotFoundError(f"DB root not found: {db_root}")
+        except (PermissionError, OSError) as e:
+            raise PermissionError(f"Cannot access DB root: {db_root}") from e
     
     def extract_all_modules(self) -> List[str]:
         """
@@ -44,13 +48,84 @@ class DBExtractor:
             return []
         
         modules = []
-        for item in module_dir.iterdir():
-            if item.is_dir() and not item.name.startswith('.'):
-                modules.append(item.name)
+        try:
+            entries = list(module_dir.iterdir())
+        except (PermissionError, OSError) as e:
+            self.logger.warning(f"Cannot read module directory (permission denied): {e}")
+            return []
+        for item in entries:
+            try:
+                if item.is_dir() and not item.name.startswith('.'):
+                    modules.append(item.name)
+            except (PermissionError, OSError) as e:
+                self.logger.warning(f"Skipping inaccessible entry {item.name}: {e}")
         
         self.logger.info(f"Found {len(modules)} modules: {modules}")
         return sorted(modules)
-    
+
+    @staticmethod
+    def validate_db_root(path: str) -> Tuple[str, str]:
+        """Check whether path is a valid XE Service DB root.
+
+        Returns:
+            ("valid", "")              — Module/ exists and is readable
+            ("no_module_dir", path)    — Module/ folder not found
+            ("permission_denied", path)— path or Module/ is inaccessible
+            ("empty", path)            — Module/ exists but contains no subdirs
+        """
+        root = Path(path)
+        try:
+            if not root.exists():
+                return ("no_module_dir", path)
+        except (PermissionError, OSError):
+            return ("permission_denied", path)
+
+        module_dir = root / "Module"
+        try:
+            if not module_dir.exists():
+                return ("no_module_dir", path)
+        except (PermissionError, OSError):
+            return ("permission_denied", path)
+
+        try:
+            subdirs = [p for p in module_dir.iterdir() if p.is_dir()]
+        except (PermissionError, OSError):
+            return ("permission_denied", path)
+
+        if not subdirs:
+            return ("empty", path)
+        return ("valid", "")
+
+    @staticmethod
+    def find_db_root_in_subtree(start_path: str, max_depth: int = 3) -> Optional[Path]:
+        """BFS search for a DB root (containing Module/) up to max_depth levels deep.
+
+        Returns the parent of the found Module/ directory, or None.
+        """
+        start = Path(start_path)
+        queue: deque = deque([(start, 0)])
+        while queue:
+            current, depth = queue.popleft()
+            if depth > max_depth:
+                continue
+            try:
+                module_candidate = current / "Module"
+                if module_candidate.exists() and module_candidate.is_dir():
+                    return current
+            except (PermissionError, OSError):
+                continue
+            if depth < max_depth:
+                try:
+                    for child in current.iterdir():
+                        try:
+                            if child.is_dir():
+                                queue.append((child, depth + 1))
+                        except (PermissionError, OSError):
+                            pass
+                except (PermissionError, OSError):
+                    pass
+        return None
+
     def extract_module_parts(self, module_name: str) -> Dict:
         """
         Extract all parts for a specific module

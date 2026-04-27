@@ -1,0 +1,21 @@
+{
+  "company": {
+    "name": "Park Systems",
+    "logo_path": "",
+    "contact": "qc@parksystems.com"
+  },
+  "title_template": "QC Inspection Report — {profile} — {date}",
+  "engineer_name": "",
+  "header_color": "#1f6aa5",
+  "footer_text": "Confidential — Internal Use Only",
+  "sheets": {
+    "summary": true,
+    "all_items": true,
+    "failed_items": true,
+    "cover_page": false
+  },
+  "columns": {
+    "show_unit": true,
+    "show_description": false
+  }
+}
