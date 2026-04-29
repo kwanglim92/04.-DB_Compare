@@ -8,6 +8,7 @@ __pycache__/
 dist/
 build/
 *.spec
+!DB_Compare_QC_Tool.spec
 
 # Virtual Environment
 venv/
@@ -28,12 +29,16 @@ Desktop.ini
 
 # PyInstaller
 *.manifest
-*.spec
+# Note: DB_Compare_QC_Tool.spec is tracked (custom build config)
+
+# Test cache
+.pytest_cache/
 
 # Agent / AI
 .agent
 .agents/
 .gemini/
+.omc/
 
 # Config - runtime files (not tracked)
 config/backup/

@@ -22,6 +22,7 @@ from typing import Dict, List, Optional
 import openpyxl
 from openpyxl.styles import PatternFill
 
+from src.constants import CHECKLIST_COLS
 from src.core.checklist_mapper import ChecklistMapper, MapResult
 from src.core.checklist_validator import ChecklistValidator
 
@@ -32,15 +33,15 @@ _FILL_GREEN  = PatternFill(fill_type='solid', fgColor='FFE8F5E9')  # explicit / 
 _FILL_YELLOW = PatternFill(fill_type='solid', fgColor='FFFFF8E1')  # fuzzy
 _FILL_RED    = PatternFill(fill_type='solid', fgColor='FFFFEBEE')  # conflict / low confidence
 
-# Column indices (1-based)
-_COL_MODULE   = 2   # B
-_COL_ITEM     = 3   # C
-_COL_MIN      = 4   # D
-_COL_CRITERIA = 5   # E
-_COL_VALUE    = 7   # G
-_COL_UNIT     = 8   # H
-_COL_PASS     = 9   # I
-_COL_DB_KEY   = 13  # M
+# Column indices — sourced from src.constants.CHECKLIST_COLS
+_COL_MODULE   = CHECKLIST_COLS['MODULE']
+_COL_ITEM     = CHECKLIST_COLS['ITEM']
+_COL_MIN      = CHECKLIST_COLS['MIN']
+_COL_CRITERIA = CHECKLIST_COLS['CRITERIA']
+_COL_VALUE    = CHECKLIST_COLS['VALUE']
+_COL_UNIT     = CHECKLIST_COLS['UNIT']
+_COL_PASS     = CHECKLIST_COLS['PASS']
+_COL_DB_KEY   = CHECKLIST_COLS['DB_KEY']
 
 # Group-header sentinel value
 _GROUP_SENTINEL = '-'

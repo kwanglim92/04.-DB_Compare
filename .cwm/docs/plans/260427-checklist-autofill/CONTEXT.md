@@ -55,6 +55,36 @@
 - 직접 일치 추정: 30~50%
 - → 5단 캐스케이드 + 학습 사전 + 사용자 검수가 필수
 
+## 아키텍처 변경 기록 (2026-04-28)
+
+### 원래 계획 → 실제 구현
+
+원래 계획은 `ChecklistAutoFiller`가 원본 엑셀을 직접 수정(백업 생성)하는 방식이었으나,
+실제 구현에서는 더 안전한 **검수자 승인 기반 사본 기입** 아키텍처로 발전했다.
+
+| 항목 | 계획 | 실제 구현 |
+|---|---|---|
+| 버튼명 | Auto-Fill Checklist | **Final Checklist QC** |
+| 진입 다이얼로그 | `ChecklistAutoFillDialog` | **`FinalChecklistQcDialog`** |
+| 기입 엔진 | `ChecklistAutoFiller` | **`ChecklistFinalQcEngine`** |
+| 원본 파일 | 덮어씀 (백업 생성) | **무수정 보존** |
+| 출력 파일 | `<원본>.bak.{ts}.xlsx` | **`<원본>_QC_Checked_AutoFilled_{ts}.xlsx`** |
+| 안전 검사 | 금지 영역 체크 | **Preflight 전단계** (쓰기권한/수식/숨김행/병합/시트보호) |
+| 행 분류 | filled / skipped | **OK / Missing / Mismatch / Unmapped / Protected / SkippedGroup / NonComparable** |
+| 위험도 | 없음 | **Safe / Review / HighRisk / Blocked + 추천 액션** |
+| 기입 결정 | confidence 임계값 자동 | **검수자 행별 명시 승인** |
+| 매핑 학습 | 미구현 | **`save_learned_mappings()`** — 로컬 JSON + 서버 upsert |
+
+### 신규 파일 (계획 외)
+- `src/core/checklist_final_qc.py` — ChecklistFinalQcEngine + PreflightResult + FinalQcRow + ApplyResult
+- `src/ui/final_checklist_qc_dialog.py` — FinalChecklistQcDialog
+- `tests/test_checklist_final_qc.py` — 엔진 단위/통합 테스트
+- `docs/final_checklist_qc_verification.md` — 수동/자동 검증 체크리스트
+
+### 기존 파일 역할
+- `ChecklistAutoFiller` / `ChecklistAutoFillDialog` — 코드베이스에 잔존, 현재 진입점에서 미사용
+  → `autofill_checklist()`는 `final_checklist_qc()`의 backward-compatible alias로만 남아 있음
+
 ## 재사용 자산 (코드)
 
 | 파일 / 함수 | 재사용 방식 |

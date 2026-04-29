@@ -92,9 +92,27 @@
 - [x] 사용자 승인 완료
 - [ ] /compact 안내 출력 완료
 
+## 아키텍처 변경 (2026-04-28 반영)
+
+원래 계획한 `ChecklistAutoFiller` 기반 구현에서 더 발전된 형태로 변경됨.
+
+### 신규 구현 (계획 외)
+- [x] `src/core/checklist_final_qc.py` — `ChecklistFinalQcEngine` (Preflight + 분류 + 위험도 + 사본 기입)
+- [x] `src/ui/final_checklist_qc_dialog.py` — `FinalChecklistQcDialog` (검수자 승인 워크플로)
+- [x] `tests/test_checklist_final_qc.py` — 엔진 테스트
+- [x] `docs/final_checklist_qc_verification.md` — 수동/자동 검증 체크리스트
+- [x] `src/ui/main_window.py` 버튼: `Auto-Fill Checklist` → `Final Checklist QC`
+- [x] `docs/README.md` — Final Checklist QC 섹션 추가
+
+### 잔존 파일 (현재 진입점에서 미사용)
+- `src/core/checklist_autofiller.py` — 기존 엔진 (잔존)
+- `src/ui/checklist_autofill_dialog.py` — 기존 다이얼로그 (잔존)
+
 ## 품질 체크
-- [ ] 에러 처리 적용 (서버 다운 / 파일 권한 / 손상된 엑셀)
-- [ ] 보안 검토 (SQL injection 화이트리스트, 파일 경로 검증)
-- [ ] 테스트 작성/통과 (Phase 6)
-- [ ] 회귀 검증 (기존 `ChecklistValidator` 검증 모드 동작 변동 없음)
-- [ ] 사용자 매뉴얼 / 변경 노트 업데이트 (`docs/`)
+- [x] 에러 처리 적용 (서버 다운 / 파일 권한 / 손상된 엑셀) — Preflight에서 처리
+- [x] 보안 검토 (SQL injection 화이트리스트, 파일 경로 검증)
+- [x] 테스트 작성/통과 (Phase 6 + test_checklist_final_qc.py)
+- [x] 회귀 검증 (기존 `ChecklistValidator` 검증 모드 동작 변동 없음)
+- [x] 사용자 매뉴얼 / 변경 노트 업데이트 (`docs/README.md`, `docs/final_checklist_qc_verification.md`)
+- [ ] PyInstaller 빌드 검증 — rapidfuzz 동작 확인
+- [x] `test_checklist_final_qc.py` 전체 통과 확인 — 12/12 passed (2026-04-28)

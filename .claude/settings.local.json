@@ -10,7 +10,9 @@
       "Bash(git push *)",
       "Skill(cwm:dev-manual)",
       "Bash(python -m pytest tests/ -x -q)",
-      "Bash(git -C \"C:/Users/Spare/Desktop/03. Program/04. DB_Compare\" status)"
+      "Bash(git -C \"C:/Users/Spare/Desktop/03. Program/04. DB_Compare\" status)",
+      "Bash(python -m pytest tests/test_checklist_final_qc.py -v)",
+      "Bash(python -m pytest tests/test_checklist_final_qc.py tests/test_checklist_autofiller.py tests/test_checklist_mapper.py -q)"
     ]
   }
 }
