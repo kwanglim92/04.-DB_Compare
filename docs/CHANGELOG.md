@@ -7,6 +7,35 @@ DB_Compare QC 검사 도구의 모든 주요 변경사항을 기록합니다.
 
 ---
 
+## [1.6.0-work-in-progress] - 2026-04-29
+
+### Final Checklist QC / Admin UX 고도화
+
+### 추가됨 (Added)
+- ✅ **Final Checklist QC**: 완성된 checklist를 최종 검수한 뒤 승인된 행만 내부 결과 사본에 기입
+  - Preflight, 위험도(`Safe/Review/HighRisk/Blocked`), 추천 조치, Profile Coverage 요약
+  - `All Rows / Needs Attention / Mismatch / Profile Matched / Missing in Checklist` 필터
+  - 승인 열 `☐ / ☑ / !` 개별 토글, `Approve Selected`, `Unapprove Selected`, `Approve Safe Corrections`, `Set Exception`, `Reset All`
+  - DB_Key 셀/행 복사, 우클릭 메뉴, `Ctrl+C` 셀 복사
+  - English/Korean UI 전환, 독립 창 동작, Maximize/Restore 버튼
+- ✅ **Checklist 경로 분리**: DB 폴더 경로와 checklist Excel 선택 경로를 분리하고 `last_checklist_dir` 저장
+- ✅ **Profile Viewer 검색**: 상태 필터(All/Pass/Check/Fail)와 검색어를 AND 조건으로 적용
+- ✅ **Admin Spec Management**: `Needs Spec Setup` 필터와 `Needs setup: N` badge 추가
+- ✅ **Admin 안전장치**: 프로필 삭제 시 관리자 비밀번호 재입력 필요
+
+### 변경됨 (Changed)
+- 🔧 Run QC의 N/A Items Review에서 profile 저장 옵션 제거 — 제외 선택은 해당 QC 재실행에만 적용
+- 🔧 Admin 모드 하위 UI 문구를 영어로 정리 (`Server Settings`, `Spec Management`, `Report Template`)
+- 🔧 Spec Add/Edit 팝업을 넓은 폼으로 개선하고 Edit 모드 key field 잠금, Range/Exact 검증 강화
+- 🔧 Final Checklist QC는 원본을 수정하지 않고 `<원본명>_QC_Checked_AutoFilled_YYYYMMDD_HHMMSS.xlsx` 내부 사본만 생성
+
+### 검증
+- ✅ `python -m pytest -q` → 182 passed, 6 skipped
+- ✅ `python -m compileall src tests`
+- ✅ `git diff --check`
+
+---
+
 ## [1.5.2] - 2026-04-27
 
 ### 사내 NPFS DRM 환경 운영 가이드 추가 📘
