@@ -15,7 +15,7 @@ from src.utils.config_helper import get_config_dir
 logger = logging.getLogger(__name__)
 
 _TEMPLATE_PATH = get_config_dir() / "report_template.json"
-_PLACEHOLDERS_HELP = "사용 가능: {profile}  {date}  {engineer}  {instrument}"
+_PLACEHOLDERS_HELP = "Available placeholders: {profile}  {date}  {engineer}  {instrument}"
 
 
 class ReportTemplatePanel(ctk.CTkFrame):
@@ -50,39 +50,39 @@ class ReportTemplatePanel(ctk.CTkFrame):
             return widget
 
         # --- Company info ---
-        section("회사 정보")
-        self._company_name = row(scroll, "회사 이름",
+        section("Company Info")
+        self._company_name = row(scroll, "Company Name",
             lambda p: ctk.CTkEntry(p, height=28, font=("Segoe UI", 12)))
-        self._company_contact = row(scroll, "연락처 (이메일)",
+        self._company_contact = row(scroll, "Contact Email",
             lambda p: ctk.CTkEntry(p, height=28, font=("Segoe UI", 12)))
 
         logo_frame = ctk.CTkFrame(scroll, fg_color="transparent")
         logo_frame.pack(fill="x", padx=8, pady=2)
-        ctk.CTkLabel(logo_frame, text="로고 파일", width=130, anchor="w",
+        ctk.CTkLabel(logo_frame, text="Logo File", width=130, anchor="w",
                      font=("Segoe UI", 12)).pack(side="left")
         self._logo_path_entry = ctk.CTkEntry(logo_frame, height=28, font=("Segoe UI", 12))
         self._logo_path_entry.pack(side="left", fill="x", expand=True, padx=(0, 6))
-        ctk.CTkButton(logo_frame, text="찾아보기…", width=80, height=28,
+        ctk.CTkButton(logo_frame, text="Browse...", width=80, height=28,
                       font=("Segoe UI", 12), command=self._browse_logo).pack(side="left")
 
         # --- Report title ---
-        section("리포트 제목")
+        section("Report Title")
         ctk.CTkLabel(scroll, text=_PLACEHOLDERS_HELP, font=("Segoe UI", 11),
                      text_color="gray60", anchor="w").pack(fill="x", padx=8)
-        self._title_template = row(scroll, "제목 템플릿",
+        self._title_template = row(scroll, "Title Template",
             lambda p: ctk.CTkEntry(p, height=28, font=("Segoe UI", 12)))
-        self._engineer_name = row(scroll, "엔지니어 이름",
+        self._engineer_name = row(scroll, "Engineer Name",
             lambda p: ctk.CTkEntry(p, height=28, font=("Segoe UI", 12)))
 
         # --- Style ---
-        section("스타일")
-        self._header_color = row(scroll, "헤더 색상 (#RRGGBB)",
+        section("Style")
+        self._header_color = row(scroll, "Header Color (#RRGGBB)",
             lambda p: ctk.CTkEntry(p, height=28, width=120, font=("Segoe UI", 12)))
-        self._footer_text = row(scroll, "Footer 문구",
+        self._footer_text = row(scroll, "Footer Text",
             lambda p: ctk.CTkEntry(p, height=28, font=("Segoe UI", 12)))
 
         # --- Sheets ---
-        section("포함 시트")
+        section("Included Sheets")
         sheets_frame = ctk.CTkFrame(scroll, fg_color="transparent")
         sheets_frame.pack(fill="x", padx=8, pady=2)
         self._sheet_vars = {}
@@ -96,13 +96,13 @@ class ReportTemplatePanel(ctk.CTkFrame):
         # --- Action buttons ---
         btn_frame = ctk.CTkFrame(scroll, fg_color="transparent")
         btn_frame.pack(fill="x", padx=8, pady=(16, 8))
-        ctk.CTkButton(btn_frame, text="기본값으로 초기화", width=140, height=32,
+        ctk.CTkButton(btn_frame, text="Reset to Defaults", width=140, height=32,
                       font=("Segoe UI", 12), fg_color="#888888", hover_color="#666666",
                       command=self._reset_defaults).pack(side="left", padx=(0, 8))
-        ctk.CTkButton(btn_frame, text="미리보기 Excel", width=120, height=32,
+        ctk.CTkButton(btn_frame, text="Preview Excel", width=120, height=32,
                       font=("Segoe UI", 12), fg_color="#555555", hover_color="#333333",
                       command=self._preview).pack(side="left", padx=(0, 8))
-        ctk.CTkButton(btn_frame, text="저장", width=80, height=32,
+        ctk.CTkButton(btn_frame, text="Save", width=80, height=32,
                       font=("Segoe UI", 12, "bold"), fg_color="#1f6aa5", hover_color="#17538a",
                       command=self._save).pack(side="left")
 
@@ -164,7 +164,7 @@ class ReportTemplatePanel(ctk.CTkFrame):
 
     def _browse_logo(self):
         path = filedialog.askopenfilename(
-            title="로고 이미지 선택",
+            title="Select Logo Image",
             filetypes=[("Image files", "*.png *.jpg *.jpeg *.gif *.bmp"), ("All files", "*.*")]
         )
         if path:
@@ -172,7 +172,7 @@ class ReportTemplatePanel(ctk.CTkFrame):
             self._logo_path_entry.insert(0, path)
 
     def _reset_defaults(self):
-        if messagebox.askyesno("기본값 초기화", "모든 설정을 기본값으로 되돌리겠습니까?"):
+        if messagebox.askyesno("Reset Defaults", "Reset all settings to the defaults?"):
             self._template = get_default_template()
             self._load_to_ui()
 
@@ -181,9 +181,9 @@ class ReportTemplatePanel(ctk.CTkFrame):
         validated = validate_template(raw)
         if save_template(validated, _TEMPLATE_PATH):
             self._template = validated
-            messagebox.showinfo("저장 완료", "리포트 템플릿이 저장되었습니다.")
+            messagebox.showinfo("Saved", "The report template has been saved.")
         else:
-            messagebox.showerror("저장 실패", "템플릿 저장 중 오류가 발생했습니다.")
+            messagebox.showerror("Save Failed", "An error occurred while saving the template.")
 
     def _preview(self):
         """Generate a dummy Excel report with current settings and open it."""
@@ -221,4 +221,4 @@ class ReportTemplatePanel(ctk.CTkFrame):
             os.startfile(tmp.name)
         except Exception as e:
             logger.error(f"Preview generation failed: {e}", exc_info=True)
-            messagebox.showerror("미리보기 실패", f"Excel 생성 중 오류:\n{e}")
+            messagebox.showerror("Preview Failed", f"Error while generating Excel:\n{e}")

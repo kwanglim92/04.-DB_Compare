@@ -49,7 +49,7 @@ class ServerSettingsPanel(ctk.CTkFrame):
 
         # Title
         ctk.CTkLabel(
-            main_frame, text="서버 연결 설정",
+            main_frame, text="Server Connection Settings",
             font=ctk.CTkFont(size=16, weight="bold")
         ).pack(pady=(0, 10))
 
@@ -84,14 +84,14 @@ class ServerSettingsPanel(ctk.CTkFrame):
         row += 1
         ctk.CTkLabel(fields_frame, text="Password:").grid(row=row, column=0, **pad)
         self.password_entry = ctk.CTkEntry(fields_frame, show="*",
-                                            placeholder_text="비밀번호 입력")
+                                            placeholder_text="Enter password")
         self.password_entry.grid(row=row, column=1, padx=(12, 12), pady=(6, 12), sticky='ew')
 
         # Mode switch
         self.mode_var = ctk.StringVar(value="offline")
         self.mode_switch = ctk.CTkSwitch(
             main_frame,
-            text="온라인 모드 (서버 동기화 사용)",
+            text="Online Mode (Use Server Sync)",
             variable=self.mode_var,
             onvalue="online",
             offvalue="offline"
@@ -110,13 +110,13 @@ class ServerSettingsPanel(ctk.CTkFrame):
         btn_frame.pack(fill="x")
 
         self.test_btn = ctk.CTkButton(
-            btn_frame, text="연결 테스트",
+            btn_frame, text="Test Connection",
             command=self._test_connection, width=110
         )
         self.test_btn.pack(side="left")
 
         self.save_btn = ctk.CTkButton(
-            btn_frame, text="저장",
+            btn_frame, text="Save",
             command=self._save, width=80
         )
         self.save_btn.pack(side="right")
@@ -154,10 +154,10 @@ class ServerSettingsPanel(ctk.CTkFrame):
         """Validate required fields"""
         values = self._get_form_values()
         if not values['host']:
-            self._set_status("Host를 입력해주세요", "red")
+            self._set_status("Enter a host.", "red")
             return False
         if not values['password']:
-            self._set_status("Password를 입력해주세요", "red")
+            self._set_status("Enter a password.", "red")
             return False
         return True
 
@@ -171,8 +171,8 @@ class ServerSettingsPanel(ctk.CTkFrame):
             return
 
         values = self._get_form_values()
-        self.test_btn.configure(state="disabled", text="연결 중...")
-        self._set_status("연결 테스트 중...", "gray")
+        self.test_btn.configure(state="disabled", text="Connecting...")
+        self._set_status("Testing connection...", "gray")
 
         def _test():
             success, message = self.sync_manager.test_connection(
@@ -188,7 +188,7 @@ class ServerSettingsPanel(ctk.CTkFrame):
 
     def _on_test_result(self, success: bool, message: str):
         """Handle test connection result"""
-        self.test_btn.configure(state="normal", text="연결 테스트")
+        self.test_btn.configure(state="normal", text="Test Connection")
         color = "#0d7d3d" if success else "red"
         self._set_status(message, color)
 
@@ -201,7 +201,7 @@ class ServerSettingsPanel(ctk.CTkFrame):
 
         # Save encrypted credentials
         if self.credential_manager.save_credentials(values):
-            self._set_status("저장 완료", "#0d7d3d")
+            self._set_status("Saved.", "#0d7d3d")
             logger.info(f"Server settings saved (mode: {values['mode']})")
 
             # Configure sync manager
@@ -217,4 +217,4 @@ class ServerSettingsPanel(ctk.CTkFrame):
             if self.on_save_callback:
                 self.on_save_callback(values['mode'])
         else:
-            self._set_status("저장 실패", "red")
+            self._set_status("Save failed.", "red")

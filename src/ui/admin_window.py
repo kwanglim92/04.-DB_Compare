@@ -9,8 +9,8 @@ functions previously spread across:
 
 Entry is gated by ``ADMIN_PASSWORD`` (see config_helper). The window hosts
 two tabs:
-  1. 서버 설정   — connection host/port/credentials + online toggle
-  2. Spec 관리  — per-profile CRUD, Import/Export (read-only when offline)
+  1. Server Settings   - connection host/port/credentials + online toggle
+  2. Spec Management   - per-profile CRUD, Import/Export (read-only when offline)
 """
 
 import customtkinter as ctk
@@ -23,6 +23,10 @@ from src.ui.server_spec_manager import ServerSpecManagerPanel
 from src.ui.report_template_panel import ReportTemplatePanel
 
 logger = logging.getLogger(__name__)
+
+TAB_SERVER_SETTINGS = "Server Settings"
+TAB_SPEC_MANAGEMENT = "Spec Management"
+TAB_REPORT_TEMPLATE = "Report Template"
 
 
 class AdminWindow(ctk.CTkToplevel):
@@ -44,7 +48,7 @@ class AdminWindow(ctk.CTkToplevel):
         self._on_spec_changed = on_spec_changed
         self._on_check_update = on_check_update
 
-        self.title("관리자 모드 — DB_Manager")
+        self.title("Admin Mode - DB_Manager")
         self.geometry("1320x760")
         self.minsize(1000, 600)
         self.transient(parent)
@@ -75,12 +79,12 @@ class AdminWindow(ctk.CTkToplevel):
         header.pack(fill="x", side="top")
         ctk.CTkLabel(
             header,
-            text="🔒 관리자 모드 — 서버 접속 및 Spec 편집은 여기에서만 수행됩니다.",
+            text="Admin Mode - Server connection and spec editing are only available here.",
             font=ctk.CTkFont(size=12, weight="bold"),
             text_color="white"
         ).pack(side="left", padx=12, pady=6)
 
-        mode_label = "● Online" if self._sync_mode == "online" else "● Offline (읽기 전용)"
+        mode_label = "Online" if self._sync_mode == "online" else "Offline (Read Only)"
         mode_color = "#4ade80" if self._sync_mode == "online" else "#fbbf24"
         ctk.CTkLabel(
             header, text=mode_label,
@@ -92,9 +96,9 @@ class AdminWindow(ctk.CTkToplevel):
         self.tabview = ctk.CTkTabview(self, anchor="nw")
         self.tabview.pack(fill="both", expand=True, padx=10, pady=10)
 
-        tab_settings = self.tabview.add("서버 설정")
-        tab_specs = self.tabview.add("Spec 관리")
-        tab_template = self.tabview.add("리포트 템플릿")
+        tab_settings = self.tabview.add(TAB_SERVER_SETTINGS)
+        tab_specs = self.tabview.add(TAB_SPEC_MANAGEMENT)
+        tab_template = self.tabview.add(TAB_REPORT_TEMPLATE)
 
         # --- Tab 1: Server Settings ---
         self.settings_panel = ServerSettingsPanel(
@@ -107,9 +111,9 @@ class AdminWindow(ctk.CTkToplevel):
         # Update check button (F13)
         update_row = ctk.CTkFrame(tab_settings, fg_color="transparent")
         update_row.pack(fill="x", padx=5, pady=(0, 8))
-        ctk.CTkLabel(update_row, text="앱 업데이트:", font=("Segoe UI", 12)).pack(side="left", padx=(4, 8))
+        ctk.CTkLabel(update_row, text="App Update:", font=("Segoe UI", 12)).pack(side="left", padx=(4, 8))
         ctk.CTkButton(
-            update_row, text="지금 확인", width=100, height=28,
+            update_row, text="Check Now", width=100, height=28,
             font=("Segoe UI", 12),
             fg_color="#1f6aa5", hover_color="#17538a",
             command=self._handle_check_update
@@ -130,9 +134,9 @@ class AdminWindow(ctk.CTkToplevel):
 
         # Start on settings tab when offline (prompt user to go online first)
         if self._sync_mode != "online":
-            self.tabview.set("서버 설정")
+            self.tabview.set(TAB_SERVER_SETTINGS)
         else:
-            self.tabview.set("Spec 관리")
+            self.tabview.set(TAB_SPEC_MANAGEMENT)
 
     def _grab_focus(self):
         """Acquire modal-like focus without a hard grab (tabview needs flexibility)."""
@@ -192,8 +196,8 @@ def prompt_admin_password(parent) -> bool:
     from src.utils.config_helper import ADMIN_PASSWORD
 
     password = simpledialog.askstring(
-        "관리자 인증",
-        "관리자 비밀번호를 입력하세요:",
+        "Admin Authentication",
+        "Enter admin password:",
         show="*",
         parent=parent,
     )
@@ -201,5 +205,5 @@ def prompt_admin_password(parent) -> bool:
         return False
     if password == ADMIN_PASSWORD:
         return True
-    messagebox.showerror("인증 실패", "비밀번호가 올바르지 않습니다.", parent=parent)
+    messagebox.showerror("Authentication Failed", "The password is incorrect.", parent=parent)
     return False

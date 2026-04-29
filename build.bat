@@ -52,6 +52,14 @@ python -m PyInstaller --noconsole --onefile ^
     --hidden-import="openpyxl" ^
     --hidden-import="PIL" ^
     --hidden-import="PIL._tkinter_finder" ^
+    --hidden-import="psycopg2" ^
+    --hidden-import="psycopg2._psycopg" ^
+    --hidden-import="cryptography" ^
+    --hidden-import="cryptography.fernet" ^
+    --hidden-import="rapidfuzz" ^
+    --hidden-import="rapidfuzz.fuzz" ^
+    --hidden-import="rapidfuzz.process" ^
+    --hidden-import="rapidfuzz.utils" ^
     main.py
 
 :: 5. Check result

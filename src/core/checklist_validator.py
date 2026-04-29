@@ -10,6 +10,9 @@ from typing import Dict, List, Optional, Tuple
 import openpyxl
 import fnmatch
 
+from src.constants import CHECKLIST_COLS
+from src.utils.checklist_helpers import build_qc_lookup, find_db_key_column
+
 logger = logging.getLogger(__name__)
 
 
@@ -31,11 +34,11 @@ class ChecklistValidationResult:
 class ChecklistValidator:
     """Validates Checklist Excel against QC results using DB_Key column in Excel"""
     
-    # Default column indices (1-based)
-    ITEM_COL = 3       # C: Check Items
-    VALUE_COL = 7       # G: Measurement
-    MODULE_COL = 2      # B: Module
-    DB_KEY_COL = 13     # M: DB_Key (default fallback)
+    # Column indices — sourced from src.constants.CHECKLIST_COLS (single source of truth)
+    ITEM_COL = CHECKLIST_COLS['ITEM']
+    VALUE_COL = CHECKLIST_COLS['VALUE']
+    MODULE_COL = CHECKLIST_COLS['MODULE']
+    DB_KEY_COL = CHECKLIST_COLS['DB_KEY']
     
     def __init__(self):
         pass
@@ -163,38 +166,14 @@ class ChecklistValidator:
             return []
     
     def _find_db_key_column(self, ws) -> Optional[int]:
-        """Auto-detect DB_Key column by scanning header row"""
-        # Scan header row for "DB_Key" (case-insensitive)
-        for col in range(1, ws.max_column + 1):
-            header = ws.cell(1, col).value
-            if header and 'db_key' in str(header).lower().replace(' ', '_').replace('-', '_'):
-                return col
-        
-        # Fallback: check row 2 (sometimes headers span 2 rows)
-        for col in range(1, ws.max_column + 1):
-            header = ws.cell(2, col).value
-            if header and 'db_key' in str(header).lower().replace(' ', '_').replace('-', '_'):
-                return col
-        
-        # Final fallback: check if column M (13) has data that looks like DB keys
-        sample = ws.cell(3, self.DB_KEY_COL).value
-        if sample and '.' in str(sample):
-            logger.info("DB_Key column auto-detected at M (13) by content pattern")
-            return self.DB_KEY_COL
-        
-        return None
-    
+        """Delegate to src.utils.checklist_helpers.find_db_key_column (kept for backward compat)."""
+        return find_db_key_column(ws)
+
     def _build_qc_lookup(self, qc_report: Dict) -> Dict[str, any]:
-        """Build flat lookup table from QC report: 'Module.PartType.PartName.ItemName' -> actual_value"""
-        lookup = {}
-        
-        for result in qc_report.get('results', []):
-            key = f"{result['module']}.{result['part_type']}.{result['part_name']}.{result['item_name']}"
-            lookup[key] = result.get('actual_value', '')
-        
-        logger.info(f"Built QC lookup: {len(lookup)} items")
-        return lookup
-    
+        """Delegate to src.utils.checklist_helpers.build_qc_lookup (kept for backward compat)."""
+        return build_qc_lookup(qc_report)
+
+
     def _compare_values(self, checklist_value, db_values: Dict) -> Tuple[str, str]:
         """Compare checklist value with DB values (numeric comparison)"""
         if checklist_value is None or str(checklist_value).strip() in ('', '-', 'N/A', 'Yes', 'No'):

@@ -38,7 +38,6 @@ class NaReviewDialog(ctk.CTkToplevel):
         
         # Result: set of exclusion patterns chosen by user
         self.excluded_patterns: Set[str] = set()
-        self.save_to_profile = False
         self.confirmed = False
         
         # Group items by Module.PartType.PartName
@@ -87,7 +86,7 @@ class NaReviewDialog(ctk.CTkToplevel):
         
         ctk.CTkLabel(
             header_frame,
-            text="옵션 미장착으로 인한 정상 부재 항목은 OFF로 전환하세요.",
+            text="옵션 미장착으로 인한 정상 부재 항목은 OFF로 전환하세요. OFF 선택은 이번 Re-run QC에만 적용됩니다.",
             font=("Segoe UI", 12),
             text_color="gray"
         ).pack(anchor="w")
@@ -98,7 +97,7 @@ class NaReviewDialog(ctk.CTkToplevel):
         
         ctk.CTkLabel(
             legend_frame,
-            text="ON = FAIL 유지 (DB 누락 의심)  |  OFF = 제외 (옵션 미장착)",
+            text="ON = FAIL 유지 (DB 누락 의심)  |  OFF = 이번 QC에서만 제외 (옵션 미장착)",
             font=("Segoe UI", 11, "bold"),
             text_color="#aaaaaa"
         ).pack(anchor="w")
@@ -112,20 +111,6 @@ class NaReviewDialog(ctk.CTkToplevel):
         
         for group_key, items in sorted_groups:
             self._create_group_row(scroll_frame, group_key, items)
-        
-        # Save checkbox
-        save_frame = ctk.CTkFrame(self, fg_color="transparent")
-        save_frame.pack(fill="x", padx=20, pady=(0, 5))
-        
-        self.save_var = ctk.BooleanVar(value=False)
-        ctk.CTkCheckBox(
-            save_frame,
-            text="이 선택을 프로파일에 저장",
-            variable=self.save_var,
-            font=("Segoe UI", 12),
-            checkbox_width=20,
-            checkbox_height=20
-        ).pack(anchor="w")
         
         # Buttons
         btn_frame = ctk.CTkFrame(self, fg_color="transparent")
@@ -216,13 +201,11 @@ class NaReviewDialog(ctk.CTkToplevel):
                 # Build wildcard pattern: Module.PartType.PartName.*
                 self.excluded_patterns.add(f"{group_key}.*")
         
-        self.save_to_profile = self.save_var.get()
         self.confirmed = True
         self.destroy()
     
     def on_cancel(self):
         """User cancelled — run QC without exclusions"""
         self.excluded_patterns = set()
-        self.save_to_profile = False
         self.confirmed = False
         self.destroy()

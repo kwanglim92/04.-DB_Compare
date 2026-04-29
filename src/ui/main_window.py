@@ -35,6 +35,7 @@ class MainWindow:
         
         # Initialize variables
         self.db_root = None
+        self.last_checklist_dir = ""
         self.db_data = None
         self.spec_manager = SpecManager()
         self.comparator = QCComparator()
@@ -48,8 +49,10 @@ class MainWindow:
 
         # Profile Viewer filter state (F3)
         self.viewer_filter = "ALL"
+        self.viewer_search_query = ""
         self._all_viewer_rows = []  # list of (values_tuple, tag_str)
         self._viewer_counts = {"ALL": 0, "PASS": 0, "CHECK": 0, "FAIL": 0, "PENDING": 0}
+        self._viewer_shown_count = 0
 
         # Initialize sync manager
         self.sync_manager = SyncManager(get_cache_dir())
@@ -88,6 +91,7 @@ class MainWindow:
         # Global key bindings (F4 search navigation)
         self.root.bind("<F3>", self._on_search_next)
         self.root.bind("<Shift-F3>", self._on_search_prev)
+        self.root.bind("<Control-f>", self._focus_profile_viewer_search)
 
         # Auto update check (online mode only, F13)
         if self.sync_mode == "online":
@@ -101,6 +105,7 @@ class MainWindow:
                 with open(settings_file, 'r', encoding='utf-8') as f:
                     settings = json.load(f)
                 self.db_root = settings.get('db_root_path', '')
+                self.last_checklist_dir = settings.get('last_checklist_dir', '')
                 default_profile = settings.get('default_equipment_profile', '')
                 if default_profile:
                     self.current_profile = default_profile
@@ -243,14 +248,14 @@ class MainWindow:
         if not self.review_checklist_enabled:
             self.review_cl_btn.pack_forget()
 
-        # Auto-Fill Checklist button (always visible, enabled after QC run)
+        # Final Checklist QC button (always visible, enabled after QC run)
         self.autofill_cl_btn = ctk.CTkButton(
             toolbar,
-            text="Auto-Fill Checklist",
+            text="Final Checklist QC",
             font=("Segoe UI", 14, "bold"),
             fg_color="#00695c",
             hover_color="#004d40",
-            command=self.autofill_checklist,
+            command=self.final_checklist_qc,
             width=175,
             height=35,
             state="disabled"
@@ -439,6 +444,15 @@ class MainWindow:
         )
         self.viewer_filter_segmented.set("All")
         self.viewer_filter_segmented.pack(side="left", padx=15)
+
+        self.profile_viewer_search = ctk.CTkEntry(
+            viewer_header,
+            width=190,
+            placeholder_text="Search profile...",
+        )
+        self.profile_viewer_search.pack(side="left", padx=(0, 12))
+        self.profile_viewer_search.bind("<KeyRelease>", self._on_profile_viewer_search)
+        self.profile_viewer_search.bind("<Escape>", self._clear_profile_viewer_search)
 
         self.profile_viewer_label = ctk.CTkLabel(
             viewer_header,
@@ -749,6 +763,35 @@ class MainWindow:
         except Exception as e:
             logger.warning(f"Failed to save db_root_path: {e}")
 
+    def _save_checklist_dir_path(self, path: str):
+        """Persist last_checklist_dir to settings.json."""
+        if not path:
+            return
+        settings_file = get_config_dir() / "settings.json"
+        try:
+            settings = {}
+            if settings_file.exists():
+                with open(settings_file, 'r', encoding='utf-8') as f:
+                    settings = json.load(f)
+            settings['last_checklist_dir'] = path
+            with open(settings_file, 'w', encoding='utf-8') as f:
+                json.dump(settings, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            logger.warning(f"Failed to save last_checklist_dir: {e}")
+
+    def _select_checklist_file(self, title: str):
+        """Select a checklist Excel file using the checklist-specific last folder."""
+        initialdir = self.last_checklist_dir if self.last_checklist_dir else None
+        excel_path = filedialog.askopenfilename(
+            title=title,
+            filetypes=[("Excel files", "*.xlsx"), ("All files", "*.*")],
+            initialdir=initialdir,
+        )
+        if excel_path:
+            self.last_checklist_dir = str(Path(excel_path).parent)
+            self._save_checklist_dir_path(self.last_checklist_dir)
+        return excel_path
+
     # ------------------------------------------------------------------
     # Auto update check (F13)
     # ------------------------------------------------------------------
@@ -920,11 +963,7 @@ class MainWindow:
         
         if dialog.confirmed:
             excluded = dialog.excluded_patterns
-            
-            # Save to profile if requested
-            if dialog.save_to_profile and excluded:
-                self._save_exclusions_to_profile(excluded)
-            
+
             # Re-run QC with exclusions
             self.run_qc_inspection(excluded_modules=excluded)
         else:
@@ -937,27 +976,6 @@ class MainWindow:
 
             pass_rate = self.qc_report['summary']['pass_rate']
             self.update_status(f"QC Complete - Pass Rate: {pass_rate}%")
-    
-    def _save_exclusions_to_profile(self, excluded_patterns):
-        """Save exclusion patterns to profile JSON"""
-        try:
-            profile_name = self.current_profile
-            if profile_name not in self.spec_manager.equipment_profiles:
-                return
-            
-            profile = self.spec_manager.equipment_profiles[profile_name]
-            existing = set(profile.get('excluded_items', []))
-            
-            # Add new patterns
-            existing.update(excluded_patterns)
-            profile['excluded_items'] = sorted(list(existing))
-            
-            # Save to file
-            self.spec_manager.save_equipment_profile(profile_name)
-            logger.info(f"Saved {len(excluded_patterns)} exclusion patterns to {profile_name}")
-            
-        except Exception as e:
-            logger.error(f"Error saving exclusions: {e}", exc_info=True)
     
     def display_results(self):
         """Display QC results - COMPACT VERSION"""
@@ -1093,11 +1111,7 @@ class MainWindow:
             messagebox.showwarning("Warning", "Please run QC inspection first.")
             return
         
-        # Select checklist Excel file
-        excel_path = filedialog.askopenfilename(
-            title="Select Checklist Excel File",
-            filetypes=[("Excel files", "*.xlsx"), ("All files", "*.*")]
-        )
+        excel_path = self._select_checklist_file("Select Checklist Excel File")
         if not excel_path:
             return
         
@@ -1131,40 +1145,39 @@ class MainWindow:
             messagebox.showerror("Error", f"Checklist review failed:\n{str(e)}")
             logger.error(f"Checklist review error: {e}", exc_info=True)
 
-    def autofill_checklist(self):
-        """Auto-fill QC values into Checklist Excel G-column"""
+    def final_checklist_qc(self):
+        """Run final checklist QC and approved auto-fill workflow."""
         if not self.qc_report:
             messagebox.showwarning("Warning", "Please run QC inspection first.")
             return
 
-        excel_path = filedialog.askopenfilename(
-            title="Select Checklist Excel File",
-            filetypes=[("Excel files", "*.xlsx"), ("All files", "*.*")]
-        )
+        excel_path = self._select_checklist_file("Select Final Checklist Excel File")
         if not excel_path:
             return
 
         try:
-            from src.ui.checklist_autofill_dialog import ChecklistAutoFillDialog
+            from src.ui.final_checklist_qc_dialog import FinalChecklistQcDialog
 
             sync_manager = getattr(self, 'sync_manager', None)
             model = getattr(self, 'current_model', '') or ''
             profile_name = self.current_profile or ''
 
-            dialog = ChecklistAutoFillDialog(
+            dialog = FinalChecklistQcDialog(
                 self.root,
                 excel_path=excel_path,
                 qc_report=self.qc_report,
                 sync_manager=sync_manager,
-                model=model,
-                profile_name=profile_name,
+                profile_name=model or profile_name,
             )
-            self.root.wait_window(dialog)
-            self.update_status(f"Auto-fill complete: {Path(excel_path).name}")
+            self.update_status(f"Final Checklist QC opened: {Path(excel_path).name}")
 
         except Exception as e:
-            messagebox.showerror("Error", f"Auto-fill failed:\n{str(e)}")
-            logger.error(f"Auto-fill error: {e}", exc_info=True)
+            messagebox.showerror("Error", f"Final Checklist QC failed:\n{str(e)}")
+            logger.error(f"Final Checklist QC error: {e}", exc_info=True)
+
+    def autofill_checklist(self):
+        """Backward-compatible alias for older command bindings."""
+        self.final_checklist_qc()
 
     def open_admin_window(self):
         """Open the unified Admin Window (password-protected)."""
@@ -1210,9 +1223,13 @@ class MainWindow:
 
         # Reset filter state on profile change (F3)
         self.viewer_filter = "ALL"
+        self.viewer_search_query = ""
         if hasattr(self, "viewer_filter_segmented"):
             self.viewer_filter_segmented.set("All")
+        if hasattr(self, "profile_viewer_search"):
+            self.profile_viewer_search.delete(0, "end")
         self._all_viewer_rows = []
+        self._viewer_shown_count = 0
         self._viewer_counts = {"ALL": 0, "PASS": 0, "CHECK": 0, "FAIL": 0, "PENDING": 0}
 
         self.profile_viewer_label.configure(text=f"Profile: {profile_name}")
@@ -1248,7 +1265,7 @@ class MainWindow:
                         self._all_viewer_rows.append((values, tag))
 
         self._recount_viewer()
-        self._update_viewer_count_label()
+        self._apply_viewer_filter()
 
     def update_profile_viewer_with_results(self, qc_report):
         """Update viewer with QC results, then refresh cache + apply current filter (F3)."""
@@ -1257,10 +1274,10 @@ class MainWindow:
             key = (result['module'], result['part_type'], result['part_name'], result['item_name'])
             results_map[key] = result
 
-        # Update each row in-place AND rebuild cache for filter
+        # Update every cached row, even if the current viewer filter/search hides it.
         new_rows = []
-        for item_id in self.profile_viewer_tree.get_children():
-            values = list(self.profile_viewer_tree.item(item_id)['values'])
+        for cached_values, _cached_tag in self._all_viewer_rows:
+            values = list(cached_values)
             key = (values[0], values[1], values[2], values[3])
             tag = 'pending'
 
@@ -1278,8 +1295,6 @@ class MainWindow:
                     result_text, tag = actual, 'pending'
 
                 values[7] = result_text
-                self.profile_viewer_tree.item(item_id, values=values, tags=(tag,))
-
             new_rows.append((tuple(values), tag))
 
         self._all_viewer_rows = new_rows
@@ -1303,18 +1318,19 @@ class MainWindow:
     def _update_viewer_count_label(self):
         """Update count label according to active filter."""
         total = self._viewer_counts.get("ALL", 0)
-        if self.viewer_filter == "ALL":
+        query = self._get_profile_viewer_search_query()
+        if self.viewer_filter == "ALL" and not query:
             self.profile_viewer_count_label.configure(
                 text=f"({total} items)", text_color="gray")
         else:
-            shown = self._viewer_counts.get(self.viewer_filter, 0)
+            shown = getattr(self, "_viewer_shown_count", self._viewer_counts.get(self.viewer_filter, 0))
             color = {
                 "PASS": "#2e7d32",
                 "CHECK": "#1976d2",
                 "FAIL": "#c62828",
             }.get(self.viewer_filter, "gray")
             self.profile_viewer_count_label.configure(
-                text=f"({shown} of {total} items, {self.viewer_filter})",
+                text=f"({shown} of {total} items)",
                 text_color=color)
 
     def set_viewer_filter(self, value: str):
@@ -1344,11 +1360,16 @@ class MainWindow:
             self.profile_viewer_tree.delete(item)
 
         target_tag = self.viewer_filter.lower() if self.viewer_filter != "ALL" else None
+        query = self._get_profile_viewer_search_query()
         new_sel_iid = None
+        shown_count = 0
         for values, tag in self._all_viewer_rows:
             if target_tag is not None and tag != target_tag:
                 continue
+            if query and not self._viewer_row_matches_search(values, query):
+                continue
             iid = self.profile_viewer_tree.insert('', 'end', values=values, tags=(tag,))
+            shown_count += 1
             if sel_key and (values[0], values[1], values[2], values[3]) == sel_key:
                 new_sel_iid = iid
 
@@ -1356,7 +1377,36 @@ class MainWindow:
             self.profile_viewer_tree.selection_set(new_sel_iid)
             self.profile_viewer_tree.see(new_sel_iid)
 
+        self._viewer_shown_count = shown_count
         self._update_viewer_count_label()
+
+    def _get_profile_viewer_search_query(self) -> str:
+        if hasattr(self, "profile_viewer_search"):
+            return self.profile_viewer_search.get().casefold().strip()
+        return self.viewer_search_query.casefold().strip()
+
+    @staticmethod
+    def _viewer_row_matches_search(values, query: str) -> bool:
+        if not query:
+            return True
+        return query in " ".join(str(value).casefold() for value in values)
+
+    def _on_profile_viewer_search(self, event=None):
+        self.viewer_search_query = self._get_profile_viewer_search_query()
+        self._apply_viewer_filter()
+
+    def _focus_profile_viewer_search(self, event=None):
+        if hasattr(self, "profile_viewer_search"):
+            self.profile_viewer_search.focus_set()
+            self.profile_viewer_search.select_range(0, "end")
+            return "break"
+
+    def _clear_profile_viewer_search(self, event=None):
+        if hasattr(self, "profile_viewer_search"):
+            self.profile_viewer_search.delete(0, "end")
+        self.viewer_search_query = ""
+        self._apply_viewer_filter()
+        return "break"
     
     def expand_all_tree(self):
         """Expand all tree items"""

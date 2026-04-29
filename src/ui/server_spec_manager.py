@@ -14,6 +14,7 @@ from datetime import datetime
 from src.core.server_db_manager import ServerDBManager
 from src.utils.credential_manager import CredentialManager
 from src.utils.format_helpers import format_spec, center_window_on_parent
+from src.utils.config_helper import ADMIN_PASSWORD
 from src.constants import COLORS
 
 logger = logging.getLogger(__name__)
@@ -23,6 +24,9 @@ try:
     HAS_PSYCOPG2 = True
 except ImportError:
     HAS_PSYCOPG2 = False
+
+SPEC_FILTER_ALL = "All"
+SPEC_FILTER_NEEDS_SETUP = "Needs Spec Setup"
 
 
 class ServerSpecManagerPanel(ctk.CTkFrame):
@@ -50,6 +54,7 @@ class ServerSpecManagerPanel(ctk.CTkFrame):
         self.profiles = []  # [{id, profile_name, ...}]
         self._all_rows = {}  # tab_name -> [row dicts with 'id' key]
         self._view_mode = {}  # tab_name -> 'table' | 'tree'
+        self._setup_filter = {}  # tab_name -> SPEC_FILTER_*
         self._edit_buttons = []  # buttons to disable in read-only mode
         self._ui_ready = False
 
@@ -94,14 +99,14 @@ class ServerSpecManagerPanel(ctk.CTkFrame):
         msg.pack(fill="both", expand=True, padx=20, pady=40)
         ctk.CTkLabel(
             msg,
-            text="서버에 연결할 수 없습니다.",
+            text="Cannot connect to the server.",
             font=ctk.CTkFont(size=16, weight="bold"),
             text_color="gray70"
         ).pack(pady=(0, 8))
         ctk.CTkLabel(
             msg,
-            text="'서버 설정' 탭에서 접속 정보를 확인해주세요.\n"
-                 "오프라인 모드에서는 Spec 편집을 사용할 수 없습니다.",
+            text="Check the connection settings in the Server Settings tab.\n"
+                 "Spec editing is unavailable in offline mode.",
             font=ctk.CTkFont(size=12),
             text_color="gray60",
             justify="center"
@@ -120,7 +125,7 @@ class ServerSpecManagerPanel(ctk.CTkFrame):
         banner.pack(fill="x", side="top", before=self.tabview)
         ctk.CTkLabel(
             banner,
-            text="⚠ 오프라인 모드 — 읽기 전용 (편집은 온라인 상태에서만 가능합니다)",
+            text="Offline Mode - Read Only (editing is only available online)",
             font=ctk.CTkFont(size=11, weight="bold"),
             text_color="white"
         ).pack(pady=4)
@@ -159,7 +164,7 @@ class ServerSpecManagerPanel(ctk.CTkFrame):
         profile_bar.pack(fill="x", padx=10, pady=(2, 0))
 
         btn_add_profile = ctk.CTkButton(
-            profile_bar, text="+ 프로필 추가", width=110, height=28,
+            profile_bar, text="+ Add Profile", width=110, height=28,
             fg_color="#1565c0", hover_color="#0d47a1",
             command=self._add_profile
         )
@@ -167,7 +172,7 @@ class ServerSpecManagerPanel(ctk.CTkFrame):
         self._edit_buttons.append(btn_add_profile)
 
         btn_rename_profile = ctk.CTkButton(
-            profile_bar, text="프로필 이름변경", width=120, height=28,
+            profile_bar, text="Rename Profile", width=120, height=28,
             fg_color="#6a1b9a", hover_color="#4a148c",
             command=self._rename_profile
         )
@@ -175,7 +180,7 @@ class ServerSpecManagerPanel(ctk.CTkFrame):
         self._edit_buttons.append(btn_rename_profile)
 
         btn_delete_profile = ctk.CTkButton(
-            profile_bar, text="프로필 삭제", width=100, height=28,
+            profile_bar, text="Delete Profile", width=100, height=28,
             fg_color="#c62828", hover_color="#a01a1a",
             command=self._delete_profile
         )
@@ -223,7 +228,7 @@ class ServerSpecManagerPanel(ctk.CTkFrame):
         toolbar.pack(fill="x", padx=5, pady=5)
 
         btn_add_item = ctk.CTkButton(
-            toolbar, text="+ 추가", width=80, height=30,
+            toolbar, text="+ Add", width=80, height=30,
             fg_color="#2fa572", hover_color="#248f5f",
             command=lambda tn=tab_name: self._add_item(tn)
         )
@@ -232,7 +237,7 @@ class ServerSpecManagerPanel(ctk.CTkFrame):
 
         # F2 — Bulk import from DB folder / Common Base / other Profile
         btn_import_module = ctk.CTkButton(
-            toolbar, text="+ 임포트", width=90, height=30,
+            toolbar, text="+ Import", width=90, height=30,
             fg_color="#1565c0", hover_color="#0d47a1",
             command=lambda tn=tab_name: self._open_import_dialog(tn)
         )
@@ -240,7 +245,7 @@ class ServerSpecManagerPanel(ctk.CTkFrame):
         self._edit_buttons.append(btn_import_module)
 
         btn_delete_item = ctk.CTkButton(
-            toolbar, text="삭제", width=70, height=30,
+            toolbar, text="Delete", width=70, height=30,
             fg_color="#c62828", hover_color="#a01a1a",
             command=lambda tn=tab_name: self._delete_selected(tn)
         )
@@ -248,13 +253,28 @@ class ServerSpecManagerPanel(ctk.CTkFrame):
         self._edit_buttons.append(btn_delete_item)
 
         # Search
-        ctk.CTkLabel(toolbar, text="검색:").pack(side="left", padx=(0, 5))
-        search_entry = ctk.CTkEntry(toolbar, width=200, placeholder_text="검색어 입력...")
+        ctk.CTkLabel(toolbar, text="Search:").pack(side="left", padx=(0, 5))
+        search_entry = ctk.CTkEntry(toolbar, width=200, placeholder_text="Search...")
         search_entry.pack(side="left", padx=(0, 10))
         search_entry.bind("<KeyRelease>", lambda e, tn=tab_name: self._on_search(tn))
 
         # Store search entry reference
         self._tab_meta[tab_name]['search_entry'] = search_entry
+
+        self._setup_filter[tab_name] = SPEC_FILTER_ALL
+        setup_filter = ctk.CTkSegmentedButton(
+            toolbar,
+            values=[SPEC_FILTER_ALL, SPEC_FILTER_NEEDS_SETUP],
+            command=lambda value, tn=tab_name: self._on_setup_filter_changed(tn, value),
+            font=("Segoe UI", 11),
+        )
+        setup_filter.set(SPEC_FILTER_ALL)
+        setup_filter.pack(side="left", padx=(0, 10))
+        self._tab_meta[tab_name]['setup_filter'] = setup_filter
+
+        setup_count_label = ctk.CTkLabel(toolbar, text="Needs setup: 0", text_color="gray")
+        setup_count_label.pack(side="left", padx=(0, 10))
+        self._tab_meta[tab_name]['setup_count_label'] = setup_count_label
 
         # View mode toggle
         self._view_mode[tab_name] = 'table'
@@ -369,20 +389,25 @@ class ServerSpecManagerPanel(ctk.CTkFrame):
                 rows = self.db_manager.get_profile_additional_checks(meta['profile_id'])
 
             self._all_rows[tab_name] = rows
-            self._display_data(tab_name, rows)
+            self._display_filtered_data(tab_name)
             meta['loaded'] = True
         except Exception as e:
             logger.error(f"Failed to load tab data: {e}")
-            messagebox.showerror("오류", f"데이터 로드 실패: {e}")
+            messagebox.showerror("Error", f"Failed to load data: {e}")
 
-    def _display_data(self, tab_name: str, rows: list, search_query: str = ''):
+    def _display_data(self, tab_name: str, rows: list, search_query: str = '', total_count: int | None = None):
         """Display data in current view mode"""
         if self._view_mode.get(tab_name) == 'tree':
-            self._display_as_tree(tab_name, rows, search_query)
+            self._display_as_tree(tab_name, rows, search_query, total_count)
         else:
-            self._display_as_table(tab_name, rows, search_query)
+            self._display_as_table(tab_name, rows, search_query, total_count)
 
-    def _display_as_table(self, tab_name: str, rows: list, search_query: str = ''):
+    def _format_count_text(self, shown_count: int, total_count: int | None = None) -> str:
+        if total_count is not None:
+            return f"{shown_count} of {total_count} items"
+        return f"{shown_count} items"
+
+    def _display_as_table(self, tab_name: str, rows: list, search_query: str = '', total_count: int | None = None):
         """Display rows in table view (flat list)"""
         tree = self._tab_meta[tab_name]['tree']
         tree.delete(*tree.get_children())
@@ -405,9 +430,9 @@ class ServerSpecManagerPanel(ctk.CTkFrame):
             ), tags=tags)
 
         count = len(rows)
-        self._tab_meta[tab_name]['count_label'].configure(text=f"{count} items")
+        self._tab_meta[tab_name]['count_label'].configure(text=self._format_count_text(count, total_count))
 
-    def _display_as_tree(self, tab_name: str, rows: list, search_query: str = ''):
+    def _display_as_tree(self, tab_name: str, rows: list, search_query: str = '', total_count: int | None = None):
         """Display rows as grouped tree (Module > PartType > PartName > Item)"""
         tree = self._tab_meta[tab_name]['tree']
         tree.delete(*tree.get_children())
@@ -466,7 +491,7 @@ class ServerSpecManagerPanel(ctk.CTkFrame):
                         )
                         item_count += 1
 
-        self._tab_meta[tab_name]['count_label'].configure(text=f"{item_count} items")
+        self._tab_meta[tab_name]['count_label'].configure(text=self._format_count_text(item_count, total_count))
 
     # ========================================
     # View Mode Toggle
@@ -483,12 +508,7 @@ class ServerSpecManagerPanel(ctk.CTkFrame):
             self._view_mode[tab_name] = 'table'
             self._reconfigure_for_table(tab_name, tree)
 
-        # Re-display current data
-        rows = self._all_rows.get(tab_name, [])
-        query = self._tab_meta[tab_name]['search_entry'].get().lower().strip()
-        if query:
-            rows = self._filter_rows(rows, query)
-        self._display_data(tab_name, rows)
+        self._display_filtered_data(tab_name)
 
     def _reconfigure_for_table(self, tab_name: str, tree: ttk.Treeview):
         """Reconfigure treeview columns for table mode (8 columns)"""
@@ -547,17 +567,62 @@ class ServerSpecManagerPanel(ctk.CTkFrame):
                 or query in row.get('part_name', '').lower()
                 or query in row.get('item_name', '').lower())
 
+    @staticmethod
+    def _is_blank_spec_value(value) -> bool:
+        return value is None or str(value).strip() == ""
+
+    @classmethod
+    def _needs_spec_setup(cls, row: dict) -> bool:
+        validation_type = (row.get('validation_type') or '').strip().lower()
+        if not validation_type:
+            return True
+        if validation_type == "range":
+            return cls._is_blank_spec_value(row.get('min_spec')) and cls._is_blank_spec_value(row.get('max_spec'))
+        if validation_type == "exact":
+            return cls._is_blank_spec_value(row.get('expected_value'))
+        if validation_type == "check":
+            return False
+        return True
+
+    def _filter_rows_for_setup_state(self, rows: list, filter_value: str) -> list:
+        if filter_value != SPEC_FILTER_NEEDS_SETUP:
+            return list(rows)
+        return [row for row in rows if self._needs_spec_setup(row)]
+
+    def _current_search_query(self, tab_name: str) -> str:
+        entry = self._tab_meta.get(tab_name, {}).get('search_entry')
+        return entry.get().lower().strip() if entry else ""
+
+    def _display_filtered_data(self, tab_name: str):
+        all_rows = self._all_rows.get(tab_name, [])
+        query = self._current_search_query(tab_name)
+        filter_value = self._setup_filter.get(tab_name, SPEC_FILTER_ALL)
+        self._update_setup_count_label(tab_name, all_rows)
+        rows = self._filter_rows(all_rows, query) if query else list(all_rows)
+        rows = self._filter_rows_for_setup_state(rows, filter_value)
+        is_filtered = bool(query) or filter_value != SPEC_FILTER_ALL
+        self._display_data(
+            tab_name,
+            rows,
+            search_query=query,
+            total_count=len(all_rows) if is_filtered else None,
+        )
+
+    def _update_setup_count_label(self, tab_name: str, rows: list):
+        label = self._tab_meta.get(tab_name, {}).get('setup_count_label')
+        if not label:
+            return
+        count = sum(1 for row in rows if self._needs_spec_setup(row))
+        color = "#c62828" if count else "gray"
+        label.configure(text=f"Needs setup: {count}", text_color=color)
+
     def _on_search(self, tab_name: str):
         """Filter rows by search query"""
-        query = self._tab_meta[tab_name]['search_entry'].get().lower().strip()
-        all_rows = self._all_rows.get(tab_name, [])
+        self._display_filtered_data(tab_name)
 
-        if not query:
-            self._display_data(tab_name, all_rows)
-            return
-
-        filtered = self._filter_rows(all_rows, query)
-        self._display_data(tab_name, filtered, search_query=query)
+    def _on_setup_filter_changed(self, tab_name: str, value: str):
+        self._setup_filter[tab_name] = value
+        self._display_filtered_data(tab_name)
 
     def _sort_column(self, tab_name: str, column: str):
         """Sort treeview by column"""
@@ -636,12 +701,12 @@ class ServerSpecManagerPanel(ctk.CTkFrame):
                     meta['profile_id'], spec)
 
             if new_id:
-                self._set_status(f"항목 추가됨: {spec['item_name']}")
+                self._set_status(f"Item added: {spec['item_name']}")
                 meta['loaded'] = False
                 self._load_tab_data(tab_name)
                 self._notify_change()
             else:
-                messagebox.showerror("오류", "항목 추가에 실패했습니다.\n중복된 항목인지 확인해주세요.")
+                messagebox.showerror("Error", "Failed to add item.\nCheck whether the item already exists.")
 
     def _edit_selected(self, tab_name: str):
         """Edit the selected row"""
@@ -675,12 +740,12 @@ class ServerSpecManagerPanel(ctk.CTkFrame):
                 ok = self.db_manager.update_additional_check(item_id, spec)
 
             if ok:
-                self._set_status(f"항목 수정됨: {spec['item_name']}")
+                self._set_status(f"Item updated: {spec['item_name']}")
                 meta['loaded'] = False
                 self._load_tab_data(tab_name)
                 self._notify_change()
             else:
-                messagebox.showerror("오류", "항목 수정에 실패했습니다.")
+                messagebox.showerror("Error", "Failed to update item.")
 
     def _delete_selected(self, tab_name: str):
         """Delete selected rows"""
@@ -690,7 +755,7 @@ class ServerSpecManagerPanel(ctk.CTkFrame):
         tree = meta['tree']
         selection = tree.selection()
         if not selection:
-            messagebox.showinfo("알림", "삭제할 항목을 선택해주세요.")
+            messagebox.showinfo("Notice", "Select one or more items to delete.")
             return
 
         # Filter out group nodes (non-numeric iids in tree view)
@@ -701,12 +766,12 @@ class ServerSpecManagerPanel(ctk.CTkFrame):
             except (ValueError, TypeError):
                 pass
         if not numeric_sel:
-            messagebox.showinfo("알림", "삭제할 항목을 선택해주세요.\n(그룹 노드는 삭제할 수 없습니다)")
+            messagebox.showinfo("Notice", "Select one or more items to delete.\nGroup nodes cannot be deleted.")
             return
 
         count = len(numeric_sel)
-        if not messagebox.askyesno("삭제 확인",
-                                    f"선택한 {count}개 항목을 삭제하시겠습니까?"):
+        if not messagebox.askyesno("Confirm Delete",
+                                    f"Delete the selected {count} item(s)?"):
             return
 
         ids = numeric_sel
@@ -716,12 +781,12 @@ class ServerSpecManagerPanel(ctk.CTkFrame):
             ok = self.db_manager.delete_additional_checks_batch(ids)
 
         if ok:
-            self._set_status(f"{count}개 항목 삭제됨")
+            self._set_status(f"{count} item(s) deleted")
             meta['loaded'] = False
             self._load_tab_data(tab_name)
             self._notify_change()
         else:
-            messagebox.showerror("오류", "삭제에 실패했습니다.")
+            messagebox.showerror("Error", "Delete failed.")
 
     def _set_status(self, text: str):
         """Update status bar"""
@@ -745,10 +810,10 @@ class ServerSpecManagerPanel(ctk.CTkFrame):
             return
 
         menu = tk.Menu(self, tearoff=0)
-        menu.add_command(label="편집", command=lambda: self._edit_selected(tab_name))
-        menu.add_command(label="삭제", command=lambda: self._delete_selected(tab_name))
+        menu.add_command(label="Edit", command=lambda: self._edit_selected(tab_name))
+        menu.add_command(label="Delete", command=lambda: self._delete_selected(tab_name))
         menu.add_separator()
-        menu.add_command(label="항목 경로 복사",
+        menu.add_command(label="Copy Item Path",
                          command=lambda: self._copy_item_path(tab_name, item_id))
         try:
             menu.tk_popup(event.x_root, event.y_root)
@@ -764,7 +829,7 @@ class ServerSpecManagerPanel(ctk.CTkFrame):
         path = f"{row.get('module', '')}/{row.get('part_type', '')}/{row.get('part_name', '')}/{row.get('item_name', '')}"
         self.clipboard_clear()
         self.clipboard_append(path)
-        self._set_status(f"복사됨: {path}")
+        self._set_status(f"Copied: {path}")
 
     # ========================================
     # Profile CRUD
@@ -782,7 +847,7 @@ class ServerSpecManagerPanel(ctk.CTkFrame):
         """Create a new profile via dialog"""
         if self.read_only:
             return
-        name = simpledialog.askstring("프로필 추가", "새 프로필 이름:", parent=self)
+        name = simpledialog.askstring("Add Profile", "New profile name:", parent=self)
         if not name or not name.strip():
             return
         name = name.strip()
@@ -790,7 +855,7 @@ class ServerSpecManagerPanel(ctk.CTkFrame):
         # Check for duplicate
         existing = [p['profile_name'] for p in self.profiles]
         if name in existing:
-            messagebox.showwarning("중복", f"'{name}' 프로필이 이미 존재합니다.")
+            messagebox.showwarning("Duplicate Profile", f"Profile '{name}' already exists.")
             return
 
         new_id = self.db_manager.create_profile(name)
@@ -799,10 +864,10 @@ class ServerSpecManagerPanel(ctk.CTkFrame):
             self._create_tab(name, profile_id=new_id)
             self.tabview.set(name)
             self._load_tab_data(name)
-            self._set_status(f"프로필 추가됨: {name}")
+            self._set_status(f"Profile added: {name}")
             self._notify_change()
         else:
-            messagebox.showerror("오류", "프로필 추가에 실패했습니다.")
+            messagebox.showerror("Error", "Failed to add profile.")
 
     def _rename_profile(self):
         """Rename the currently selected profile"""
@@ -810,11 +875,11 @@ class ServerSpecManagerPanel(ctk.CTkFrame):
             return
         tab_name, meta = self._get_current_profile_meta()
         if not tab_name:
-            messagebox.showinfo("알림", "이름을 변경할 프로필 탭을 선택해주세요.\n(Common Base는 변경할 수 없습니다)")
+            messagebox.showinfo("Notice", "Select a profile tab to rename.\nCommon Base cannot be renamed.")
             return
 
         new_name = simpledialog.askstring(
-            "프로필 이름변경", f"'{tab_name}'의 새 이름:", parent=self,
+            "Rename Profile", f"New name for '{tab_name}':", parent=self,
             initialvalue=tab_name)
         if not new_name or not new_name.strip() or new_name.strip() == tab_name:
             return
@@ -831,10 +896,10 @@ class ServerSpecManagerPanel(ctk.CTkFrame):
             # Recreate tabs (CTkTabview doesn't support tab rename)
             self._rebuild_tabs()
             self.tabview.set(new_name)
-            self._set_status(f"프로필 이름변경: {tab_name} → {new_name}")
+            self._set_status(f"Profile renamed: {tab_name} -> {new_name}")
             self._notify_change()
         else:
-            messagebox.showerror("오류", "프로필 이름변경에 실패했습니다.")
+            messagebox.showerror("Error", "Failed to rename profile.")
 
     def _delete_profile(self):
         """Delete the currently selected profile"""
@@ -842,12 +907,15 @@ class ServerSpecManagerPanel(ctk.CTkFrame):
             return
         tab_name, meta = self._get_current_profile_meta()
         if not tab_name:
-            messagebox.showinfo("알림", "삭제할 프로필 탭을 선택해주세요.\n(Common Base는 삭제할 수 없습니다)")
+            messagebox.showinfo("Notice", "Select a profile tab to delete.\nCommon Base cannot be deleted.")
             return
 
         if not messagebox.askyesno(
-                "프로필 삭제",
-                f"'{tab_name}' 프로필과 관련 데이터를 모두 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다."):
+                "Delete Profile",
+                f"Delete profile '{tab_name}' and all related data?\nThis action cannot be undone."):
+            return
+
+        if not self._confirm_profile_delete_password(tab_name):
             return
 
         profile_id = meta['profile_id']
@@ -855,10 +923,25 @@ class ServerSpecManagerPanel(ctk.CTkFrame):
             self.profiles = [p for p in self.profiles if p['id'] != profile_id]
             self._rebuild_tabs()
             self.tabview.set("Common Base")
-            self._set_status(f"프로필 삭제됨: {tab_name}")
+            self._set_status(f"Profile deleted: {tab_name}")
             self._notify_change()
         else:
-            messagebox.showerror("오류", "프로필 삭제에 실패했습니다.")
+            messagebox.showerror("Error", "Failed to delete profile.")
+
+    def _confirm_profile_delete_password(self, profile_name: str) -> bool:
+        """Require a fresh admin password before destructive profile deletion."""
+        password = simpledialog.askstring(
+            "Confirm Profile Delete",
+            f"Re-enter admin password to delete '{profile_name}':",
+            show="*",
+            parent=self,
+        )
+        if password is None:
+            return False
+        if password == ADMIN_PASSWORD:
+            return True
+        messagebox.showerror("Authentication Failed", "The password is incorrect.", parent=self)
+        return False
 
     def _rebuild_tabs(self):
         """Rebuild all tabs from current profile list"""
@@ -912,11 +995,11 @@ class ServerSpecManagerPanel(ctk.CTkFrame):
         try:
             with open(filepath, 'w', encoding='utf-8') as f:
                 json.dump(export_data, f, indent=2, ensure_ascii=False, default=str)
-            messagebox.showinfo("Export 완료",
-                                f"'{tab_name}' 데이터를 내보냈습니다.\n{filepath}")
-            self._set_status(f"Export 완료: {filepath}")
+            messagebox.showinfo("Export Complete",
+                                f"Exported '{tab_name}' data.\n{filepath}")
+            self._set_status(f"Export complete: {filepath}")
         except Exception as e:
-            messagebox.showerror("Export 실패", f"내보내기에 실패했습니다.\n{e}")
+            messagebox.showerror("Export Failed", f"Failed to export.\n{e}")
 
     def _import_profile(self):
         """Import profile data from JSON file into server DB"""
@@ -933,28 +1016,28 @@ class ServerSpecManagerPanel(ctk.CTkFrame):
             with open(filepath, 'r', encoding='utf-8') as f:
                 import_data = json.load(f)
         except (json.JSONDecodeError, OSError) as e:
-            messagebox.showerror("Import 실패", f"파일을 읽을 수 없습니다.\n{e}")
+            messagebox.showerror("Import Failed", f"Cannot read the file.\n{e}")
             return
 
         # Validate format
         profile_name = import_data.get('profile_name')
         profile_data = import_data.get('profile_data')
         if not profile_name or not profile_data:
-            messagebox.showerror("Import 실패", "유효하지 않은 프로필 파일입니다.")
+            messagebox.showerror("Import Failed", "Invalid profile file.")
             return
 
         # Find or create profile
         existing = next((p for p in self.profiles if p['profile_name'] == profile_name), None)
         if existing:
             if not messagebox.askyesno(
-                    "프로필 존재",
-                    f"'{profile_name}' 프로필이 이미 존재합니다.\n덮어쓰시겠습니까?"):
+                    "Profile Exists",
+                    f"Profile '{profile_name}' already exists.\nOverwrite it?"):
                 return
             profile_id = existing['id']
         else:
             profile_id = self.db_manager.create_profile(profile_name)
             if not profile_id:
-                messagebox.showerror("Import 실패", "프로필 생성에 실패했습니다.")
+                messagebox.showerror("Import Failed", "Failed to create profile.")
                 return
             self.profiles.append({'id': profile_id, 'profile_name': profile_name})
 
@@ -963,12 +1046,12 @@ class ServerSpecManagerPanel(ctk.CTkFrame):
             self._rebuild_tabs()
             self.tabview.set(profile_name)
             self._load_tab_data(profile_name)
-            messagebox.showinfo("Import 완료",
-                                f"'{profile_name}' 프로필을 가져왔습니다.")
-            self._set_status(f"Import 완료: {profile_name}")
+            messagebox.showinfo("Import Complete",
+                                f"Imported profile '{profile_name}'.")
+            self._set_status(f"Import complete: {profile_name}")
             self._notify_change()
         else:
-            messagebox.showerror("Import 실패", "데이터 가져오기에 실패했습니다.")
+            messagebox.showerror("Import Failed", "Failed to import data.")
 
     def _refresh_all(self):
         """Reload all tabs"""
@@ -984,55 +1067,82 @@ class ServerSpecManagerPanel(ctk.CTkFrame):
 class SpecItemDialog(ctk.CTkToplevel):
     """Unified dialog for adding / editing a spec item"""
 
+    DIALOG_WIDTH = 640
+    DIALOG_HEIGHT = 520
+    VALIDATION_CHOICES = (("range", "Range"), ("exact", "Exact"), ("check", "Check"))
+    KEY_ENTRY_ATTRS = ("module_entry", "ptype_entry", "pname_entry", "iname_entry")
+
     def __init__(self, parent, tab_name: str, row_data: dict = None):
         super().__init__(parent)
         self.result = None
         self.row_data = row_data  # None = add mode
         self._is_edit = row_data is not None
 
-        title = f"항목 편집 — {tab_name}" if self._is_edit else f"항목 추가 — {tab_name}"
+        title = f"Edit Item - {tab_name}" if self._is_edit else f"Add Item - {tab_name}"
         self.title(title)
-        self.geometry("420x400")
+        self.geometry(f"{self.DIALOG_WIDTH}x{self.DIALOG_HEIGHT}")
+        self.minsize(self.DIALOG_WIDTH, self.DIALOG_HEIGHT)
         self.resizable(False, False)
         self.transient(parent)
         self.grab_set()
-        center_window_on_parent(self, parent, 420, 400)
+        center_window_on_parent(self, parent, self.DIALOG_WIDTH, self.DIALOG_HEIGHT)
         self._create_widgets()
+        self.bind("<Escape>", lambda _event: self.destroy())
+        self.bind("<Control-s>", lambda _event: self._save())
+        self.after(100, self._focus_initial)
 
     def _create_widgets(self):
-        main = ctk.CTkFrame(self, fg_color="transparent")
-        main.pack(fill="both", expand=True, padx=15, pady=10)
+        root = ctk.CTkFrame(self, fg_color="transparent")
+        root.pack(fill="both", expand=True, padx=18, pady=14)
 
-        # --- Compact grid form ---
+        main = ctk.CTkFrame(root, fg_color="transparent")
+        main.pack(fill="both", expand=True)
+
+        title_text = "Edit Spec Item" if self._is_edit else "Add Spec Item"
+        ctk.CTkLabel(
+            main,
+            text=title_text,
+            font=ctk.CTkFont(size=16, weight="bold")
+        ).pack(anchor="w", pady=(0, 8))
+
+        if self._is_edit:
+            ctk.CTkLabel(
+                main,
+                text="Key fields are locked in Edit mode.",
+                font=ctk.CTkFont(size=11),
+                text_color="gray65"
+            ).pack(anchor="w", pady=(0, 8))
+
+        # --- Form ---
         form = ctk.CTkFrame(main)
-        form.pack(fill="x", pady=(0, 8))
+        form.pack(fill="x", pady=(0, 10))
         form.columnconfigure(1, weight=1)
         form.columnconfigure(3, weight=1)
 
         r = self.row_data or {}
 
         # Row 0: Module / Part Type (2-column layout)
-        ctk.CTkLabel(form, text="Module:").grid(row=0, column=0, padx=(10, 4), pady=4, sticky='w')
-        self.module_entry = ctk.CTkEntry(form, placeholder_text="Dsp")
-        self.module_entry.grid(row=0, column=1, padx=(0, 8), pady=4, sticky='ew')
+        ctk.CTkLabel(form, text="Module:").grid(row=0, column=0, padx=(12, 6), pady=(12, 6), sticky='w')
+        self.module_entry = ctk.CTkEntry(form, placeholder_text="Dsp", width=180)
+        self.module_entry.grid(row=0, column=1, padx=(0, 14), pady=(12, 6), sticky='ew')
 
-        ctk.CTkLabel(form, text="Part Type:").grid(row=0, column=2, padx=(8, 4), pady=4, sticky='w')
-        self.ptype_entry = ctk.CTkEntry(form, placeholder_text="XScanner")
-        self.ptype_entry.grid(row=0, column=3, padx=(0, 10), pady=4, sticky='ew')
+        ctk.CTkLabel(form, text="Part Type:").grid(row=0, column=2, padx=(0, 6), pady=(12, 6), sticky='w')
+        self.ptype_entry = ctk.CTkEntry(form, placeholder_text="XScanner", width=180)
+        self.ptype_entry.grid(row=0, column=3, padx=(0, 12), pady=(12, 6), sticky='ew')
 
         # Row 1: Part Name / Unit (2-column layout)
-        ctk.CTkLabel(form, text="Part Name:").grid(row=1, column=0, padx=(10, 4), pady=4, sticky='w')
-        self.pname_entry = ctk.CTkEntry(form, placeholder_text="100um")
-        self.pname_entry.grid(row=1, column=1, padx=(0, 8), pady=4, sticky='ew')
+        ctk.CTkLabel(form, text="Part Name:").grid(row=1, column=0, padx=(12, 6), pady=6, sticky='w')
+        self.pname_entry = ctk.CTkEntry(form, placeholder_text="100um", width=180)
+        self.pname_entry.grid(row=1, column=1, padx=(0, 14), pady=6, sticky='ew')
 
-        ctk.CTkLabel(form, text="Unit:").grid(row=1, column=2, padx=(8, 4), pady=4, sticky='w')
-        self.unit_entry = ctk.CTkEntry(form)
-        self.unit_entry.grid(row=1, column=3, padx=(0, 10), pady=4, sticky='ew')
+        ctk.CTkLabel(form, text="Unit:").grid(row=1, column=2, padx=(0, 6), pady=6, sticky='w')
+        self.unit_entry = ctk.CTkEntry(form, width=180)
+        self.unit_entry.grid(row=1, column=3, padx=(0, 12), pady=6, sticky='ew')
 
         # Row 2: Item Name (full width)
-        ctk.CTkLabel(form, text="Item Name:").grid(row=2, column=0, padx=(10, 4), pady=4, sticky='w')
+        ctk.CTkLabel(form, text="Item Name:").grid(row=2, column=0, padx=(12, 6), pady=(6, 12), sticky='w')
         self.iname_entry = ctk.CTkEntry(form)
-        self.iname_entry.grid(row=2, column=1, columnspan=3, padx=(0, 10), pady=4, sticky='ew')
+        self.iname_entry.grid(row=2, column=1, columnspan=3, padx=(0, 12), pady=(6, 12), sticky='ew')
 
         # Fill values in edit mode
         if self._is_edit:
@@ -1042,23 +1152,27 @@ class SpecItemDialog(ctk.CTkToplevel):
             self.iname_entry.insert(0, r.get('item_name', ''))
             self.unit_entry.insert(0, r.get('unit', ''))
 
+        self._apply_key_field_state()
+
         # --- Validation type radio ---
         type_frame = ctk.CTkFrame(main)
-        type_frame.pack(fill="x", pady=(0, 4))
+        type_frame.pack(fill="x", pady=(0, 10))
 
-        ctk.CTkLabel(type_frame, text="검증 타입:",
+        ctk.CTkLabel(type_frame, text="Validation Type:",
                      font=ctk.CTkFont(weight="bold")).grid(
-            row=0, column=0, padx=(10, 8), pady=6, sticky='w')
+            row=0, column=0, columnspan=3, padx=12, pady=(10, 4), sticky='w')
 
-        self.type_var = ctk.StringVar(value=r.get('validation_type', 'range'))
-        for col, (val, text) in enumerate([("range", "Range"), ("exact", "Exact"), ("check", "Check")]):
+        self.type_var = ctk.StringVar(value=r.get('validation_type') or 'range')
+        for col in range(3):
+            type_frame.columnconfigure(col, weight=1)
+        for col, (val, text) in enumerate(self.VALIDATION_CHOICES):
             ctk.CTkRadioButton(type_frame, text=text, variable=self.type_var,
                                value=val, command=self._on_type_change
-                               ).grid(row=0, column=col + 1, padx=6, pady=6)
+                               ).grid(row=1, column=col, padx=12, pady=(4, 12), sticky='w')
 
         # --- Spec fields (dynamic visibility) ---
         self._spec_frame = ctk.CTkFrame(main)
-        self._spec_frame.pack(fill="x", pady=(0, 8))
+        self._spec_frame.pack(fill="x", pady=(0, 10))
         self._spec_frame.columnconfigure(1, weight=1)
         self._spec_frame.columnconfigure(3, weight=1)
 
@@ -1069,8 +1183,13 @@ class SpecItemDialog(ctk.CTkToplevel):
         self.max_entry = ctk.CTkEntry(self._spec_frame)
 
         # Exact field
-        self._expected_label = ctk.CTkLabel(self._spec_frame, text="Expected:")
+        self._expected_label = ctk.CTkLabel(self._spec_frame, text="Expected Value:")
         self.expected_entry = ctk.CTkEntry(self._spec_frame)
+        self._check_note = ctk.CTkLabel(
+            self._spec_frame,
+            text="No spec value is required for Check items.",
+            text_color="gray65"
+        )
 
         # Fill spec values in edit mode
         if self._is_edit:
@@ -1086,15 +1205,33 @@ class SpecItemDialog(ctk.CTkToplevel):
 
         self._on_type_change()
 
-        # --- Buttons ---
-        btn_frame = ctk.CTkFrame(main, fg_color="transparent")
-        btn_frame.pack(fill="x", pady=(4, 0))
+        self.error_label = ctk.CTkLabel(
+            main,
+            text="",
+            text_color="#ff6b6b",
+            font=ctk.CTkFont(size=12)
+        )
+        self.error_label.pack(anchor="w", pady=(0, 8))
 
-        ctk.CTkButton(btn_frame, text="취소", width=80,
+        # --- Buttons ---
+        btn_frame = ctk.CTkFrame(root, fg_color="transparent")
+        btn_frame.pack(fill="x", pady=(8, 0))
+
+        ctk.CTkButton(btn_frame, text="Cancel", width=96,
                        fg_color="gray40", command=self.destroy).pack(side="right")
-        save_text = "저장" if self._is_edit else "추가"
-        ctk.CTkButton(btn_frame, text=save_text, width=80,
-                       command=self._save).pack(side="right", padx=5)
+        save_text = "Save" if self._is_edit else "Add"
+        self.save_button = ctk.CTkButton(btn_frame, text=save_text, width=104,
+                                         command=self._save)
+        self.save_button.pack(side="right", padx=(0, 8))
+
+    def _apply_key_field_state(self):
+        """Lock DB key fields while editing to prevent accidental item identity changes."""
+        if self._is_edit:
+            self._lock_key_fields()
+
+    def _lock_key_fields(self):
+        for attr in self.KEY_ENTRY_ATTRS:
+            getattr(self, attr).configure(state="disabled")
 
     def _on_type_change(self):
         """Show/hide spec fields based on validation type"""
@@ -1103,49 +1240,120 @@ class SpecItemDialog(ctk.CTkToplevel):
         # Clear all spec widgets from grid
         for widget in (self._min_label, self.min_entry,
                        self._max_label, self.max_entry,
-                       self._expected_label, self.expected_entry):
+                       self._expected_label, self.expected_entry,
+                       self._check_note):
             widget.grid_forget()
 
         if vtype == "range":
-            self._min_label.grid(row=0, column=0, padx=(10, 4), pady=4, sticky='w')
-            self.min_entry.grid(row=0, column=1, padx=(0, 8), pady=4, sticky='ew')
-            self._max_label.grid(row=0, column=2, padx=(8, 4), pady=4, sticky='w')
-            self.max_entry.grid(row=0, column=3, padx=(0, 10), pady=4, sticky='ew')
+            self._min_label.grid(row=0, column=0, padx=(12, 6), pady=12, sticky='w')
+            self.min_entry.grid(row=0, column=1, padx=(0, 14), pady=12, sticky='ew')
+            self._max_label.grid(row=0, column=2, padx=(0, 6), pady=12, sticky='w')
+            self.max_entry.grid(row=0, column=3, padx=(0, 12), pady=12, sticky='ew')
         elif vtype == "exact":
-            self._expected_label.grid(row=0, column=0, padx=(10, 4), pady=4, sticky='w')
-            self.expected_entry.grid(row=0, column=1, columnspan=3, padx=(0, 10), pady=4, sticky='ew')
-        # check: no spec fields shown
+            self._expected_label.grid(row=0, column=0, padx=(12, 6), pady=12, sticky='w')
+            self.expected_entry.grid(row=0, column=1, columnspan=3, padx=(0, 12), pady=12, sticky='ew')
+        elif vtype == "check":
+            self._check_note.grid(row=0, column=0, columnspan=4, padx=12, pady=12, sticky='w')
+        self._set_error("")
+
+    def _focus_initial(self):
+        if not self._is_edit:
+            self.module_entry.focus_set()
+            return
+
+        vtype = self.type_var.get()
+        if vtype == "range":
+            self.min_entry.focus_set()
+        elif vtype == "exact":
+            self.expected_entry.focus_set()
+        else:
+            self.unit_entry.focus_set()
+
+    def _set_error(self, message: str):
+        if hasattr(self, "error_label"):
+            self.error_label.configure(text=message)
 
     def _save(self):
         module = self.module_entry.get().strip()
         ptype = self.ptype_entry.get().strip()
         pname = self.pname_entry.get().strip()
         iname = self.iname_entry.get().strip()
-
-        if not all([module, ptype, pname, iname]):
-            messagebox.showwarning("입력 오류",
-                                   "Module, Part Type, Part Name, Item Name은 필수입니다.")
+        spec, error = self._build_spec_from_values(
+            module=module,
+            part_type=ptype,
+            part_name=pname,
+            item_name=iname,
+            unit=self.unit_entry.get(),
+            validation_type=self.type_var.get(),
+            min_text=self.min_entry.get(),
+            max_text=self.max_entry.get(),
+            expected_text=self.expected_entry.get(),
+        )
+        if error:
+            self._set_error(error)
             return
-
-        vtype = self.type_var.get()
-        spec = {
-            'module': module, 'part_type': ptype,
-            'part_name': pname, 'item_name': iname,
-            'validation_type': vtype,
-            'unit': self.unit_entry.get().strip(),
-            'enabled': True, 'description': ''
-        }
-
-        if vtype == "range":
-            min_val = self.min_entry.get().strip()
-            max_val = self.max_entry.get().strip()
-            spec['min_spec'] = float(min_val) if min_val else None
-            spec['max_spec'] = float(max_val) if max_val else None
-        elif vtype == "exact":
-            spec['expected_value'] = self.expected_entry.get().strip() or None
 
         self.result = spec
         self.destroy()
+
+    @classmethod
+    def _build_spec_from_values(cls, *, module: str, part_type: str,
+                                part_name: str, item_name: str, unit: str,
+                                validation_type: str, min_text: str,
+                                max_text: str, expected_text: str):
+        module = (module or "").strip()
+        part_type = (part_type or "").strip()
+        part_name = (part_name or "").strip()
+        item_name = (item_name or "").strip()
+        unit = (unit or "").strip()
+        validation_type = (validation_type or "").strip().lower()
+        min_text = (min_text or "").strip()
+        max_text = (max_text or "").strip()
+        expected_text = (expected_text or "").strip()
+
+        if not all([module, part_type, part_name, item_name]):
+            return None, "Module, Part Type, Part Name, and Item Name are required."
+
+        if validation_type not in {value for value, _ in cls.VALIDATION_CHOICES}:
+            return None, "Choose a validation type."
+
+        spec = {
+            'module': module,
+            'part_type': part_type,
+            'part_name': part_name,
+            'item_name': item_name,
+            'validation_type': validation_type,
+            'unit': unit,
+            'enabled': True,
+            'description': '',
+        }
+
+        if validation_type == "range":
+            min_spec, error = cls._parse_optional_float(min_text, "Min")
+            if error:
+                return None, error
+            max_spec, error = cls._parse_optional_float(max_text, "Max")
+            if error:
+                return None, error
+            if min_spec is not None and max_spec is not None and min_spec > max_spec:
+                return None, "Min cannot be greater than Max."
+            spec['min_spec'] = min_spec
+            spec['max_spec'] = max_spec
+        elif validation_type == "exact":
+            if not expected_text:
+                return None, "Expected Value is required for Exact items."
+            spec['expected_value'] = expected_text
+
+        return spec, ""
+
+    @staticmethod
+    def _parse_optional_float(value: str, label: str):
+        if not value:
+            return None, ""
+        try:
+            return float(value), ""
+        except ValueError:
+            return None, f"{label} must be a number."
 
 
 # ========================================
@@ -1183,7 +1391,7 @@ class ModuleImportDialog(ctk.CTkToplevel):
         self._row_iid_to_index = {}     # tree iid -> index in _source_items
         self._checked = set()           # set of indices
 
-        self.title(f"모듈 임포트 — 대상: {target_tab_name}")
+        self.title(f"Module Import - Target: {target_tab_name}")
         self.geometry("1000x720")
         self.minsize(800, 600)
         self.transient(parent)
@@ -1219,7 +1427,7 @@ class ModuleImportDialog(ctk.CTkToplevel):
         src_frame.pack(fill="x", pady=(0, 8))
 
         ctk.CTkLabel(
-            src_frame, text="1. 임포트 소스 선택",
+            src_frame, text="1. Select Import Source",
             font=ctk.CTkFont(size=13, weight="bold")
         ).pack(anchor="w", padx=10, pady=(8, 4))
 
@@ -1228,7 +1436,7 @@ class ModuleImportDialog(ctk.CTkToplevel):
         src_radio_frame.pack(fill="x", padx=10, pady=(0, 8))
 
         ctk.CTkRadioButton(
-            src_radio_frame, text="DB 폴더 (XML)",
+            src_radio_frame, text="DB Folder (XML)",
             variable=self.source_var, value="db",
             command=self._on_source_changed
         ).pack(side="left", padx=(0, 12))
@@ -1240,7 +1448,7 @@ class ModuleImportDialog(ctk.CTkToplevel):
         ).pack(side="left", padx=(0, 12))
 
         ctk.CTkRadioButton(
-            src_radio_frame, text="다른 Profile",
+            src_radio_frame, text="Other Profile",
             variable=self.source_var, value="profile",
             command=self._on_source_changed
         ).pack(side="left", padx=(0, 12))
@@ -1250,17 +1458,17 @@ class ModuleImportDialog(ctk.CTkToplevel):
         detail_row.pack(fill="x", padx=10, pady=(0, 8))
 
         self.db_path_label = ctk.CTkLabel(
-            detail_row, text="(폴더 미선택)", text_color="gray60"
+            detail_row, text="(No folder selected)", text_color="gray60"
         )
         self.db_path_label.pack(side="left", padx=(0, 8))
 
         self.choose_db_btn = ctk.CTkButton(
-            detail_row, text="DB 폴더 선택…", width=140,
+            detail_row, text="Choose DB Folder...", width=140,
             command=self._choose_db_folder
         )
         self.choose_db_btn.pack(side="left", padx=(0, 8))
 
-        profile_names = [p['profile_name'] for p in self.other_profiles] or ["(없음)"]
+        profile_names = [p['profile_name'] for p in self.other_profiles] or ["(None)"]
         self.profile_combo = ctk.CTkComboBox(
             detail_row, values=profile_names, width=220,
             command=lambda _: self._load_source()
@@ -1270,7 +1478,7 @@ class ModuleImportDialog(ctk.CTkToplevel):
         self.profile_combo.configure(state="disabled")
 
         self.load_cb_btn = ctk.CTkButton(
-            detail_row, text="Common Base 불러오기", width=170,
+            detail_row, text="Load Common Base", width=170,
             command=self._load_source
         )
         self.load_cb_btn.pack(side="left", padx=(0, 8))
@@ -1283,25 +1491,25 @@ class ModuleImportDialog(ctk.CTkToplevel):
         mid_header = ctk.CTkFrame(mid, fg_color="transparent")
         mid_header.pack(fill="x", padx=10, pady=(8, 4))
         ctk.CTkLabel(
-            mid_header, text="2. 임포트할 항목 선택 (☑ = 신규, "
-                              + "노랑 = 이미 존재)",
+            mid_header, text="2. Select Items to Import (checked = new, "
+                              + "gold = already exists)",
             font=ctk.CTkFont(size=13, weight="bold")
         ).pack(side="left")
 
         # Search
-        ctk.CTkLabel(mid_header, text="  검색:").pack(side="left", padx=(20, 4))
+        ctk.CTkLabel(mid_header, text="  Search:").pack(side="left", padx=(20, 4))
         self.search_entry = ctk.CTkEntry(
-            mid_header, width=200, placeholder_text="모듈/Part/Item…"
+            mid_header, width=200, placeholder_text="Module / Part / Item..."
         )
         self.search_entry.pack(side="left")
         self.search_entry.bind("<KeyRelease>", lambda e: self._apply_search_filter())
 
         ctk.CTkButton(
-            mid_header, text="모두 선택", width=80,
+            mid_header, text="Select All", width=80,
             command=self._select_all_visible
         ).pack(side="right", padx=(4, 0))
         ctk.CTkButton(
-            mid_header, text="모두 해제", width=80,
+            mid_header, text="Clear All", width=80,
             command=self._deselect_all
         ).pack(side="right", padx=4)
 
@@ -1349,20 +1557,20 @@ class ModuleImportDialog(ctk.CTkToplevel):
         conflict_row.pack(fill="x", padx=10, pady=(8, 4))
 
         ctk.CTkLabel(
-            conflict_row, text="3. 충돌 처리:",
+            conflict_row, text="3. Conflict Handling:",
             font=ctk.CTkFont(size=13, weight="bold")
         ).pack(side="left", padx=(0, 8))
 
         self.conflict_var = ctk.StringVar(value="skip")
         ctk.CTkRadioButton(
-            conflict_row, text="Skip (기본)", variable=self.conflict_var, value="skip"
+            conflict_row, text="Skip (Default)", variable=self.conflict_var, value="skip"
         ).pack(side="left", padx=(0, 8))
         ctk.CTkRadioButton(
-            conflict_row, text="Update (덮어쓰기)",
+            conflict_row, text="Update (Overwrite)",
             variable=self.conflict_var, value="update"
         ).pack(side="left", padx=(0, 8))
         ctk.CTkRadioButton(
-            conflict_row, text="Abort (충돌 시 중단)",
+            conflict_row, text="Abort (Stop on Conflict)",
             variable=self.conflict_var, value="abort"
         ).pack(side="left", padx=(0, 8))
 
@@ -1371,7 +1579,7 @@ class ModuleImportDialog(ctk.CTkToplevel):
         summary_row.pack(fill="x", padx=10, pady=(0, 4))
 
         self.summary_label = ctk.CTkLabel(
-            summary_row, text="선택: 신규 0개 / 기존 0개",
+            summary_row, text="Selected: 0 new / 0 existing",
             font=ctk.CTkFont(size=12), text_color="gray70"
         )
         self.summary_label.pack(side="left")
@@ -1387,12 +1595,12 @@ class ModuleImportDialog(ctk.CTkToplevel):
         btn_row.pack(fill="x", padx=10, pady=(0, 10))
 
         ctk.CTkButton(
-            btn_row, text="취소", width=80, fg_color="gray40", hover_color="gray30",
+            btn_row, text="Cancel", width=80, fg_color="gray40", hover_color="gray30",
             command=self.destroy
         ).pack(side="right", padx=(8, 0))
 
         self.import_btn = ctk.CTkButton(
-            btn_row, text="임포트 실행", width=120,
+            btn_row, text="Run Import", width=120,
             fg_color="#2fa572", hover_color="#248f5f",
             command=self._do_import
         )
@@ -1429,11 +1637,11 @@ class ModuleImportDialog(ctk.CTkToplevel):
         self._update_summary()
 
     def _choose_db_folder(self):
-        path = filedialog.askdirectory(title="DB 폴더 선택", parent=self)
+        path = filedialog.askdirectory(title="Choose DB Folder", parent=self)
         if not path:
             return
         self.db_path_label.configure(text=path[-60:] if len(path) > 60 else path)
-        self._set_status("DB 추출 중...", "gray60")
+        self._set_status("Extracting DB items...", "gray60")
         self.update_idletasks()
         try:
             from src.core.db_extractor import DBExtractor
@@ -1463,11 +1671,11 @@ class ModuleImportDialog(ctk.CTkToplevel):
             self._checked.clear()
             self._render_tree()
             self._update_summary()
-            self._set_status(f"{len(items)}개 항목 추출됨", "#0d7d3d")
+            self._set_status(f"Extracted {len(items)} item(s)", "#0d7d3d")
         except Exception as e:
             logger.error(f"DB extraction failed: {e}", exc_info=True)
-            messagebox.showerror("DB 추출 실패", f"유효한 DB 폴더가 아닙니다.\n{e}", parent=self)
-            self._set_status("DB 추출 실패", "red")
+            messagebox.showerror("DB Extraction Failed", f"This is not a valid DB folder.\n{e}", parent=self)
+            self._set_status("DB extraction failed", "red")
 
     def _load_source(self, *_):
         """Load Common Base or other profile data."""
@@ -1477,13 +1685,13 @@ class ModuleImportDialog(ctk.CTkToplevel):
                 rows = self.db_manager.get_all_specs()
             elif src == "profile":
                 if not self.other_profiles:
-                    self._set_status("선택 가능한 다른 프로필이 없습니다", "red")
+                    self._set_status("No other profile is available.", "red")
                     return
                 pname = self.profile_combo.get()
                 pid = next((p['id'] for p in self.other_profiles
                             if p['profile_name'] == pname), None)
                 if pid is None:
-                    self._set_status("프로필을 선택하세요", "red")
+                    self._set_status("Select a profile.", "red")
                     return
                 rows = self.db_manager.get_profile_additional_checks(pid)
             else:
@@ -1496,10 +1704,10 @@ class ModuleImportDialog(ctk.CTkToplevel):
             self._checked.clear()
             self._render_tree()
             self._update_summary()
-            self._set_status(f"{len(rows)}개 항목 불러옴", "#0d7d3d")
+            self._set_status(f"Loaded {len(rows)} item(s)", "#0d7d3d")
         except Exception as e:
             logger.error(f"Source load failed: {e}", exc_info=True)
-            self._set_status(f"불러오기 실패: {e}", "red")
+            self._set_status(f"Load failed: {e}", "red")
 
     # ----- Tree rendering -----
 
@@ -1624,7 +1832,7 @@ class ModuleImportDialog(ctk.CTkToplevel):
             else:
                 new_count += 1
         self.summary_label.configure(
-            text=f"선택: 신규 {new_count}개 / 기존 {existing_count}개"
+            text=f"Selected: {new_count} new / {existing_count} existing"
         )
 
     def _set_status(self, text: str, color: str = "gray60"):
@@ -1634,40 +1842,40 @@ class ModuleImportDialog(ctk.CTkToplevel):
 
     def _do_import(self):
         if not self._checked:
-            messagebox.showwarning("알림", "선택된 항목이 없습니다.", parent=self)
+            messagebox.showwarning("Notice", "No items selected.", parent=self)
             return
 
         items = [self._source_items[idx] for idx in sorted(self._checked)]
         strategy = self.conflict_var.get()
 
-        self.import_btn.configure(state="disabled", text="임포트 중...")
-        self._set_status("서버에 적용 중...", "gray60")
+        self.import_btn.configure(state="disabled", text="Importing...")
+        self._set_status("Applying to server...", "gray60")
         self.update_idletasks()
 
         result = self.db_manager.bulk_add_specs(
             self.target_profile_id, items, conflict_strategy=strategy
         )
         self.result = result
-        self.import_btn.configure(state="normal", text="임포트 실행")
+        self.import_btn.configure(state="normal", text="Run Import")
 
         # Show outcome
         if result.get('errors'):
             err_msg = "\n".join(result['errors'][:5])
             messagebox.showerror(
-                "임포트 실패",
-                f"오류가 발생했습니다.\n{err_msg}\n\n"
-                f"신규: {result['added']}, 갱신: {result['updated']}, "
-                f"건너뜀: {result['skipped']}",
+                "Import Failed",
+                f"An error occurred.\n{err_msg}\n\n"
+                f"Added: {result['added']}, Updated: {result['updated']}, "
+                f"Skipped: {result['skipped']}",
                 parent=self
             )
             return
 
         messagebox.showinfo(
-            "임포트 완료",
-            f"성공적으로 처리되었습니다.\n"
-            f"신규 추가: {result['added']}개\n"
-            f"갱신: {result['updated']}개\n"
-            f"건너뜀: {result['skipped']}개",
+            "Import Complete",
+            f"Successfully processed.\n"
+            f"Added: {result['added']}\n"
+            f"Updated: {result['updated']}\n"
+            f"Skipped: {result['skipped']}",
             parent=self
         )
         self.destroy()
